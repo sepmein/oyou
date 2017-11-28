@@ -55,14 +55,5 @@ class Trainer:
                                 input_y: input_y
                             })
 
-                if i % self.record_interval == 0:
-                    self.logger.log()
-
-                if i % self.save_interval == 0:
-                    self.saver.save()
-
-    def write_summaries(self):
-        pass
-
-    def save(self):
-        pass
+                self.logger.log(step=i)
+                self.saver.save(step=i)
