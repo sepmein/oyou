@@ -10,7 +10,8 @@ setup(name='oyou',
       packages=['oyou'],
       zip_safe=False,
       install_requires=[
-          'tensorflow'
+          'tensorflow',
+          'numpy'
       ],
       test_suite='nose.collector',
       tests_require=['nose'])

@@ -29,6 +29,9 @@ class Trainer:
         self.record_interval = record_interval
         self.save_interval = save_interval
 
+        self.session = tf.Session()
+        self.saver.session = self.session
+
     def train(self,
               input_x,
               input_y):
@@ -36,24 +39,26 @@ class Trainer:
         train a model
         :return:
         """
-        with tf.Session() as session:
-            # just a fancier version of tf.global_variables_initializer()
-            # get variable first
-            global_variables = self.model.graph.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
-            # create init op of global variables
-            init = tf.variables_initializer(global_variables)
-            session.run(init)
-            # add training step
-            with tf.name_scope('training'):
-                train = self.optimizer(learning_rate=self.learning_rate) \
-                    .minimize(self.model.loss)
+        # just a fancier version of tf.global_variables_initializer()
+        # get variable first
+        global_variables = self.model.graph.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
+        # create init op of global variables
+        init = tf.variables_initializer(global_variables)
+        self.session.run(init)
+        # add training step
+        with tf.name_scope('training'):
+            train = self.optimizer(learning_rate=self.learning_rate) \
+                .minimize(self.model.loss)
 
-            for i in range(self.training_steps):
-                session.run(train,
-                            feed_dict={
-                                input_x: input_x,
-                                input_y: input_y
-                            })
+        for i in range(self.training_steps):
+            self.session.run(train,
+                             feed_dict={
+                                 input_x: input_x,
+                                 input_y: input_y
+                             })
 
-                self.logger.log(step=i)
-                self.saver.save(step=i)
+            self.logger.log(step=i, session=self.session)
+            self.saver.save(step=i)
+
+        # close session
+        self.session.close()

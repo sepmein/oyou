@@ -29,6 +29,12 @@ class Logger:
         t = summary
         self.summaries[self.file_writers[writer]] = t
 
+    def add_scalar(self, writer, tensor):
+        writer = self.file_writers[writer]
+        if writer is None:
+            raise Exception('File Writer for the summary is not defined')
+        writer.add_summary()
+
     def merge_all(self):
         """
         Merge all summaries
