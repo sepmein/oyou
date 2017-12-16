@@ -4,7 +4,7 @@ from unittest import TestCase
 import tensorflow as tf
 import numpy as np
 import oyou
-from oyou.build import Model
+from oyou.model import Model
 from oyou.train import Trainer
 from oyou.logger import Logger
 from oyou.save import Saver
