@@ -3,6 +3,10 @@ import os
 import tensorflow as tf
 
 
+def _default_compare_fn_for_saving_strategy(a, b):
+    return a > b
+
+
 class Model:
     """
     Tensorflow model builder
@@ -38,7 +42,13 @@ class Model:
         self.model_folder = folder + '/model'
         self.saver = tf.saved_model.builder.SavedModelBuilder(export_dir=self.model_folder)
         # TODO: define default saving strategy
-        self.saving_strategy = None
+        self.saving_strategy = {
+            'interval': 10,
+            'max_to_keep': 5,
+            'indicator_tensor': self._prediction,
+            'top_model_list': [],
+            'compare_fn': _default_compare_fn_for_saving_strategy
+        }
 
     @property
     def name(self):
@@ -261,43 +271,43 @@ class Model:
                     'step': step
                 })
                 self.saving_strategy.top_model_list.pop()
-        self.saver.save()
+                self.saver.save()
+                # TODO: delete previous saved model, check python os fs delete api
 
+    def load(self, session):
+        tf.saved_model.loader.load(session, self.tags, self.model_folder)
 
-def load(self, session):
-    tf.saved_model.loader.load(session, self.tags, self.model_folder)
+    def train(self,
+              input_x,
+              input_y,
+              learning_rate=None,
+              training_steps=100000,
+              optimizer=tf.train.AdamOptimizer,
+              **kwargs):
 
+        """
 
-def train(self,
-          input_x,
-          input_y,
-          learning_rate=None,
-          training_steps=100000,
-          optimizer=tf.train.AdamOptimizer,
-          **kwargs):
-    """
+        :param input_x:
+        :param input_y:
+        :param learning_rate:
+        :param training_steps:
+        :param optimizer:
+        :param kwargs:
+        :return:
+        """
+        with tf.Session(graph=self.graph) as sess:
+            # just a fancier version of tf.global_variables_initializer()
+            # get variable first
+            global_variables = self.graph.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
+            # create init op of global variables
+            init = tf.variables_initializer(global_variables)
+            sess.run(init)
 
-    :param input_x:
-    :param input_y:
-    :param learning_rate:
-    :param training_steps:
-    :param optimizer:
-    :param kwargs:
-    :return:
-    """
-    with tf.Session(graph=self.graph) as sess:
-        # just a fancier version of tf.global_variables_initializer()
-        # get variable first
-        global_variables = self.graph.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
-        # create init op of global variables
-        init = tf.variables_initializer(global_variables)
-        sess.run(init)
+            # create log op
+            self.finalized_log()
 
-        # create log op
-        self.finalized_log()
-
-        # hook session for saver
-        self.hook_session(sess)
+            # hook session for saver
+            self.hook_session(sess)
 
         # add meta graph and variables
         self.add_meta_graph_and_variables(tags=self.tags)
@@ -328,17 +338,12 @@ def train(self,
                 self.log(session=sess,
                          step=i,
                          log_group=writer.name,
-                         feed_dict=collection)
-
-            # TODO: saving strategy
-            self.save()
+                         feed_dict=collection)  # TODO: saving strategy
+            self.save(step=i)
 
 
+# TODO add a DNN model for convenience
 class DNN(Model):
     def __init__(self):
         super().__init__()
         pass
-
-
-def _default_compare_fn_for_saving_strategy(a, b):
-    return a > b
