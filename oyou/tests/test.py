@@ -5,9 +5,8 @@ import tensorflow as tf
 import numpy as np
 import oyou
 from oyou.model import Model
-from oyou.train import Trainer
-from oyou.logger import Logger
-from oyou.save import Saver
+import shutil
+import os
 
 
 class TestOyou(TestCase):
@@ -32,28 +31,41 @@ class TestOyou(TestCase):
         prediction = tf.matmul(input_x, w, name='prediction')
 
         loss = tf.reduce_sum(tf.abs(prediction - input_y))
+        shutil.rmtree('./model')
+        model = Model(name='simple_model')
 
-        graph = tf.get_default_graph()
-        model = Model(graph=graph)
-        model.loss = loss
+        self.assertIsInstance(model, Model, msg='Create model instance, should be the instance of the Model class')
+
+        self.assertIs(model.graph, tf.get_default_graph())
+        self.assertIs(model.name, 'simple_model')
+        self.assertEqual(model.folder, os.getcwd())
+
         model.prediction = prediction
-        # define logger
-        logger = Logger(model=model)
-        logger.add_writer('training')
-        logger.bind('training', w)
-        logger.merge_all()
-        # define saver
-        saver = Saver(
-            export_dir='c:/',
-            tags='test')
-        # train model use trainer
-        trainer = Trainer(model=model,
-                          logger=logger,
-                          saver=saver
-                          )
-        trainer.train(input_x=x.reshape(-1, 1),
-                      input_y=y.reshape(-1, 1))
+        self.assertEqual(model.prediction, prediction)
+        self.assertEqual(model._prediction, prediction)
 
+        model.loss = loss
+        self.assertEqual(model.loss, loss)
+
+        # test get tensor by name
+        self.assertEqual(model.get_tensor_by_name(prediction.name), prediction)
+
+        # test get tensor
+        self.assertEqual(model.get_tensor(prediction), prediction)
+
+        for tensor in model:
+            self.assertIsInstance(tensor, tf.Tensor)
+
+        model.create_log_group(name='training',
+                               feed_tensors=[input_x, input_y],
+                               record_interval=10
+                               )
+
+        model.create_log_group(name='cross_validation',
+                               feed_tensors=[input_x, input_y],
+                               record_interval=20
+                               )
+        self.assertIs()
 
 if __name__ == '__main__':
     unittest.main()

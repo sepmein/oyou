@@ -40,6 +40,7 @@ class Model:
         self.folder = folder
         self.log_folder = folder + '/log'
         self.model_folder = folder + '/model'
+        # FIXME: if trained before, model saver dir is existed, reinitiating the same instance will cause error
         self.saver = tf.saved_model.builder.SavedModelBuilder(export_dir=self.model_folder)
         # TODO: define default saving strategy
         self.saving_strategy = {
@@ -122,16 +123,20 @@ class Model:
 
     def tensors_generator(self):
         for ops in self.graph.get_operations():
-            yield ops.values()
+            for input_tensor in ops.inputs:
+                yield input_tensor
+
+            for output_tensor in ops.outputs:
+                yield output_tensor
 
     def create_log_group(self,
-                         log_group,
+                         name,
                          feed_tensors,
                          record_interval=10,
                          ):
         """
         create log group
-        :param log_group:
+        :param name:
         :param record_interval:
         :param feed_tensors list obj to hold the name of the feed_dict
         self.train will check the **kwargs in order to match those names
@@ -140,10 +145,10 @@ class Model:
         # TODO: add feed_dict placeholder to the log group
         _existed = False
         for writer in self.file_writers:
-            if writer.name is log_group:
+            if writer.name is name:
                 _existed = True
 
-        directory = self.log_folder + '/' + log_group
+        directory = self.log_folder + '/' + name
         # sanitary check the feed tensor
         for tensor in feed_tensors:
             if not isinstance(tensor, tf.Tensor):
@@ -151,12 +156,14 @@ class Model:
 
         if not _existed:
             self.file_writers.append({
-                'name': log_group,
+                'name': name,
                 'writer': tf.summary.FileWriter(logdir=directory, graph=self.graph),
                 'record_interval': record_interval,
                 'summaries': [],
                 'feed_dict': feed_tensors
             })
+        else:
+            raise Exception('Calling create log group, log group: ' + name + ' already existed.')
 
     def _add_to_summary_writer(self, log_group, summary):
         _existed = False
@@ -169,8 +176,7 @@ class Model:
         if _existed:
             writer = self.file_writers[index]
         else:
-            self.create_log_group(log_group)
-            writer = self.file_writers[-1]
+            raise Exception('Called _added_to_summary_writer, summary group should not defined')
         writer['summaries'].append(summary)
 
     def log_scalar(self, name, tensor, group):
@@ -241,36 +247,34 @@ class Model:
         if self.saver_indicator is None and not isinstance(self.saver_indicator, tf.Tensor):
             raise Exception('Please set saver_indicator first to use define_saving_strategy function,'
                             ' because the model should know what to decide which one to save.')
-        self.saving_strategy = None
         self.saving_strategy.interval = interval
         self.saving_strategy.max_to_keep = max_to_keep
         self.saving_strategy.indicator_tensor = indicator_tensor
-        self.saving_strategy.top_model_list = []
         self.saving_strategy.compare_fn = compare_fn
 
     def save(self, step):
-        current_best_model = self.saving_strategy.top_model_list[-1]
+        current_best_model = self.saving_strategy['top_model_list'][-1]
 
         if self.saving_strategy is None:
             raise Exception('Should define saving strategy before saving.')
-        if step % self.saving_strategy.interval:
+        if step % self.saving_strategy['interval']:
             # check performance
             # TODO: how to handle the situation when multiple input of saver indicator
-            performance = self.session.run(self.saving_strategy.indicator_tensor,
+            performance = self.session.run(self.saving_strategy['indicator_tensor'],
                                            feed_dict={
-                                               self.saving_strategy.indicator_tensor.name: input
+                                               self.saving_strategy['indicator_tensor'].name: input
                                            })
             # compare it to the current best model
             # if performance is better, add it to the current best model list
             # and save it on the disk
             # TODO: how to decide performance is better? should use greater? or miner? how to predefine this
             # particular information in the saving strategy.
-            if self.saving_strategy.compare(performance, current_best_model.performace):
-                self.saving_strategy.top_model_list.append({
+            if self.saving_strategy['compare'](performance, current_best_model['performance']):
+                self.saving_strategy['top_model_list'].append({
                     'performance': performance,
                     'step': step
                 })
-                self.saving_strategy.top_model_list.pop()
+                self.saving_strategy['top_model_list'].pop()
                 self.saver.save()
                 # TODO: delete previous saved model, check python os fs delete api
 
