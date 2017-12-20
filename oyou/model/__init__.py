@@ -145,7 +145,7 @@ class Model:
         # TODO: add feed_dict placeholder to the log group
         _existed = False
         for writer in self.file_writers:
-            if writer.name is name:
+            if writer['name'] is name:
                 _existed = True
 
         directory = self.log_folder + '/' + name
@@ -169,7 +169,7 @@ class Model:
         _existed = False
         index = None
         for idx, writer in enumerate(self.file_writers):
-            if writer.name is log_group:
+            if writer['name'] is log_group:
                 _existed = True
                 index = idx
 
@@ -197,8 +197,9 @@ class Model:
 
     def finalized_log(self):
         for writer in self.file_writers:
-            summary_op = tf.summary.merge(writer.summaries, name=writer.name + '_summaries')
-            writer.summary_op = summary_op
+            summary_op = tf.summary.merge(writer['summaries'],
+                                          name=writer['name'] + '_summaries')
+            writer['summary_op'] = summary_op
 
     def log(self, session, step, log_group, feed_dict):
         """Log the predefined summaries on the run
@@ -214,9 +215,9 @@ class Model:
         :return:
         """
         for index, writer in enumerate(self.file_writers):
-            if writer.record_interval % step == 0 and writer.name is log_group:
-                summaries = session.run(writer.summary_op, feed_dict=feed_dict)
-                writer.writer.add_summary(summary=summaries, global_step=step)
+            if writer['record_interval'] % step == 0 and writer['name'] is log_group:
+                summaries = session.run(writer['summary_op'], feed_dict=feed_dict)
+                writer['writer'].add_summary(summary=summaries, global_step=step)
 
     def hook_session(self, session):
         self.session = session
@@ -313,37 +314,39 @@ class Model:
             # hook session for saver
             self.hook_session(sess)
 
-        # add meta graph and variables
-        self.add_meta_graph_and_variables(tags=self.tags)
+            # add meta graph and variables
+            self.add_meta_graph_and_variables(tags=self.tags)
 
-        train = optimizer(learning_rate=learning_rate).minimize(self.loss)
+            train = optimizer(learning_rate=learning_rate).minimize(self.loss)
 
-        # training steps
-        for i in range(training_steps):
-            sess.run(train,
-                     feed_dict={
-                         self.input_x.name: input_x,
-                         self.input_y.name: input_y
-                     })
-            # TODO: if the log group is undecided or multiple,
-            # how could we define the parameters of the training function
-            # TODO: add some explanations for better understanding
-            # for every file writer, check all the input kwargs
-            # if the args name is the following api : writer name + _ + input tensor name
-            # then add the arg to the collection
-            # then run the file writer with the collection
-            # TODO: Does all the inputs of the log group has been defined? It should be checked
-            for index, writer in enumerate(self.file_writers):
-                collection = {}
-                for key, value in kwargs.items():
-                    for tensor in writer.feed_dict:
-                        if writer.name + '_' + tensor.name is key:
-                            collection[tensor.name] = value
-                self.log(session=sess,
-                         step=i,
-                         log_group=writer.name,
-                         feed_dict=collection)  # TODO: saving strategy
-            self.save(step=i)
+            # training steps
+            for i in range(training_steps):
+                sess.run(train,
+                         feed_dict={
+                             self.input_x.name: input_x,
+                             self.input_y.name: input_y
+                         })
+                # TODO: if the log group is undecided or multiple,
+                # how could we define the parameters of the training function
+                # TODO: add some explanations for better understanding
+                # for every file writer, check all the input kwargs
+                # if the args name is the following api : writer name + _ + input tensor name
+                # then add the arg to the collection
+                # then run the file writer with the collection
+                # TODO: Does all the inputs of the log group has been defined? It should be checked
+                for index, writer in enumerate(self.file_writers):
+                    collection = {}
+                    for key, value in kwargs.items():
+                        for tensor in writer['feed_dict']:
+                            if writer['name'] + '_' + tensor.name is key:
+                                collection[tensor.name] = value
+                    self.log(session=sess,
+                             step=i,
+                             log_group=writer['name'],
+                             feed_dict=collection)
+
+                # TODO: saving strategy
+                self.save(step=i)
 
 
 # TODO add a DNN model for convenience
