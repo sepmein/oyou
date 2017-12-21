@@ -4,7 +4,14 @@ import tensorflow as tf
 
 
 def _default_compare_fn_for_saving_strategy(a, b):
-    return a > b
+    if b is None:
+        return True
+    if a is None:
+        return False
+    if a < b:
+        return True
+    else:
+        return False
 
 
 class Model:
@@ -46,8 +53,10 @@ class Model:
         self.saving_strategy = {
             'interval': 10,
             'max_to_keep': 5,
-            'indicator_tensor': self._prediction,
-            'top_model_list': [],
+            'indicator_tensor': self._loss,
+            'top_model_list': [
+                dict(performance=None)
+            ],
             'compare_fn': _default_compare_fn_for_saving_strategy
         }
 
@@ -91,13 +100,13 @@ class Model:
     def loss(self, loss):
         self._loss = self.get_tensor(loss)
 
-    @property
-    def saver_indicator(self):
-        return self._saver_indicator
-
-    @saver_indicator.setter
-    def saver_indicator(self, saver_indicator):
-        self._saver_indicator = self.get_tensor(saver_indicator)
+    # @property
+    # def saver_indicator(self):
+    #     return self._saver_indicator
+    #
+    # @saver_indicator.setter
+    # def saver_indicator(self, saver_indicator):
+    #     self._saver_indicator = self.get_tensor(saver_indicator)
 
     def get_tensor_by_name(self, name):
         return self.graph.get_tensor_by_name(name)
@@ -245,32 +254,36 @@ class Model:
         :return:
         """
         # check saver indicator first, it should be a type of tensor
-        if self.saver_indicator is None and not isinstance(self.saver_indicator, tf.Tensor):
-            raise Exception('Please set saver_indicator first to use define_saving_strategy function,'
-                            ' because the model should know what to decide which one to save.')
-        self.saving_strategy.interval = interval
-        self.saving_strategy.max_to_keep = max_to_keep
-        self.saving_strategy.indicator_tensor = indicator_tensor
-        self.saving_strategy.compare_fn = compare_fn
+        # if self.saver_indicator is None and not isinstance(self.saver_indicator, tf.Tensor):
+        #     raise Exception('Please set saver_indicator first to use define_saving_strategy function,'
+        #                     ' because the model should know what to decide which one to save.')
+        self.saving_strategy['interval'] = interval
+        self.saving_strategy['max_to_keep'] = max_to_keep
+        self.saving_strategy['indicator_tensor'] = indicator_tensor
+        self.saving_strategy['compare_fn'] = compare_fn
 
-    def save(self, step):
-        current_best_model = self.saving_strategy['top_model_list'][-1]
+    def save(self, step, feed):
+        # detect current_best_model
+        current_best_model = dict(
+            performance=None
+        )
+        if len(self.saving_strategy['top_model_list']) is not 0:
+            current_best_model = self.saving_strategy['top_model_list'][-1]
 
         if self.saving_strategy is None:
             raise Exception('Should define saving strategy before saving.')
-        if step % self.saving_strategy['interval']:
+        if step % self.saving_strategy['interval'] == 0:
             # check performance
             # TODO: how to handle the situation when multiple input of saver indicator
             performance = self.session.run(self.saving_strategy['indicator_tensor'],
-                                           feed_dict={
-                                               self.saving_strategy['indicator_tensor'].name: input
-                                           })
+                                           feed_dict=feed)
+            print(performance)
             # compare it to the current best model
             # if performance is better, add it to the current best model list
             # and save it on the disk
             # TODO: how to decide performance is better? should use greater? or miner? how to predefine this
             # particular information in the saving strategy.
-            if self.saving_strategy['compare'](performance, current_best_model['performance']):
+            if self.saving_strategy['compare_fn'](performance, current_best_model['performance']):
                 self.saving_strategy['top_model_list'].append({
                     'performance': performance,
                     'step': step
@@ -285,7 +298,7 @@ class Model:
     def train(self,
               input_x,
               input_y,
-              learning_rate=None,
+              learning_rate=0.001,
               training_steps=100000,
               optimizer=tf.train.AdamOptimizer,
               **kwargs):
@@ -301,12 +314,17 @@ class Model:
         :return:
         """
         with tf.Session(graph=self.graph) as sess:
+            # define training ops
+            train = optimizer(learning_rate=learning_rate).minimize(self.loss)
+
             # just a fancier version of tf.global_variables_initializer()
             # get variable first
             global_variables = self.graph.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
             # create init op of global variables
-            init = tf.variables_initializer(global_variables)
-            sess.run(init)
+            init_global = tf.variables_initializer(global_variables)
+            local_variables = self.graph.get_collection(tf.GraphKeys.LOCAL_VARIABLES)
+            init_local = tf.variables_initializer(local_variables)
+            sess.run([init_global, init_local])
 
             # create log op
             self.finalized_log()
@@ -316,8 +334,6 @@ class Model:
 
             # add meta graph and variables
             self.add_meta_graph_and_variables(tags=self.tags)
-
-            train = optimizer(learning_rate=learning_rate).minimize(self.loss)
 
             # training steps
             for i in range(training_steps):
@@ -338,15 +354,18 @@ class Model:
                     collection = {}
                     for key, value in kwargs.items():
                         for tensor in writer['feed_dict']:
-                            if writer['name'] + '_' + tensor.name is key:
+                            if writer['name'] + '_' + tensor.name == key + ':0':
                                 collection[tensor.name] = value
                     self.log(session=sess,
-                             step=i,
+                             step=i + 1,
                              log_group=writer['name'],
                              feed_dict=collection)
 
                 # TODO: saving strategy
-                self.save(step=i)
+                for key, value in kwargs.items():
+                    if key is 'saving_indicator_feed':
+                        self.save(step=i,
+                                  feed=value)
 
 
 # TODO add a DNN model for convenience
