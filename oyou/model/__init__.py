@@ -1,3 +1,4 @@
+# coding=utf-8
 import os
 
 import tensorflow as tf
@@ -36,9 +37,9 @@ class Model:
         else:
             raise Exception('Graph should be instance of tf.Graph')
         self._name = name
-        self._input_x = None
-        self._input_y = None
-        self._loss = None
+        self._features = None
+        self._targets = None
+        self._losses = None
         self._prediction = None
         self._saver_indicator = None
         self.tags = self._name
@@ -53,7 +54,7 @@ class Model:
         self.saving_strategy = {
             'interval': 10,
             'max_to_keep': 5,
-            'indicator_tensor': self._loss,
+            'indicator_tensor': self._losses,
             'top_model_list': [
                 dict(performance=None)
             ],
@@ -62,6 +63,10 @@ class Model:
 
     @property
     def name(self):
+        """
+        set the name of the model
+        :return: a name string.
+        """
         return self._name
 
     @name.setter
@@ -69,23 +74,35 @@ class Model:
         self._name = value
 
     @property
-    def input_x(self):
-        return self._input_x
+    def features(self):
+        """
+        Input property of the model.
+        :return: input tensor
+        """
+        return self._features
 
-    @input_x.setter
-    def input_x(self, input_x):
-        self._input_x = self.get_tensor(input_x)
+    @features.setter
+    def features(self, features):
+        self._features = self.get_tensor(features)
 
     @property
-    def input_y(self):
-        return self._input_y
+    def targets(self):
+        """
+        Targets property of the model
+        :return:
+        """
+        return self._targets
 
-    @input_y.setter
-    def input_y(self, input_y):
-        self._input_y = self.get_tensor(input_y)
+    @targets.setter
+    def targets(self, targets):
+        self._targets = self.get_tensor(targets)
 
     @property
     def prediction(self):
+        """
+        Prediction property of the model
+        :return:
+        """
         return self._prediction
 
     @prediction.setter
@@ -93,12 +110,16 @@ class Model:
         self._prediction = self.get_tensor(prediction)
 
     @property
-    def loss(self):
-        return self._loss
+    def losses(self):
+        """
+        Losses property of the model
+        :return:
+        """
+        return self._losses
 
-    @loss.setter
-    def loss(self, loss):
-        self._loss = self.get_tensor(loss)
+    @losses.setter
+    def losses(self, losses):
+        self._losses = self.get_tensor(losses)
 
     # @property
     # def saver_indicator(self):
@@ -109,28 +130,32 @@ class Model:
     #     self._saver_indicator = self.get_tensor(saver_indicator)
 
     def get_tensor_by_name(self, name):
+        """
+        Given a `name` string, Find it in the model.graph
+        :param name: string
+        :return: tensor
+        """
         return self.graph.get_tensor_by_name(name)
 
     def get_tensor(self, tensor):
-        # type = self.check_type(tensor)
-        # if type is 'Str':
-        #     return self.get_tensor_by_name(tensor)
-        # else:
-        #     return tensor
+        """
+        Get a tensor from a `tensor` name or a tensor object.
+        It's just a wrap of tf.graph.as_graph_element fn.
+        Check the tensorflow document for more information.
+        Current Version: 1.4.1
+        :param tensor: Tensor object or string
+        :return:
+        """
         return self.graph.as_graph_element(tensor)
 
     def __iter__(self):
-        # if targets is 'ops':
         return iter(self.tensors_generator())
-        # elif targets is 'tensor':
-        #     for op in get_operations()
-        #       return op.values()
-        #     return iter(self.tensors_generator())
-
-    # def __next__(self):
-    #     return 0
 
     def tensors_generator(self):
+        """
+        Get all tensor of the graph.
+        :return: iterator object
+        """
         for ops in self.graph.get_operations():
             for input_tensor in ops.inputs:
                 yield input_tensor
@@ -140,14 +165,22 @@ class Model:
 
     def create_log_group(self,
                          name,
-                         feed_tensors,
                          record_interval=10,
+                         feed_tensors=None
                          ):
         """
-        create log group
-        :param name:
-        :param record_interval:
-        :param feed_tensors list obj to hold the name of the feed_dict
+        Create log groups for tf.summary.File_Writer. Example usage:
+        We may want to record different indicators for training and cross validation process. So we could create two log
+        groups as follows:
+        `
+        self.create_log_group(name='training', feed_tensors=some_training_tensors)
+        self.create_log_group(name='cross_validation', feed_tensors=some_cross_validation_tensors)
+        `
+        The name of the log group will be fed to `tf.summary.file_writer` and will be shown in the Tensorboard. The
+        `feed_tensors` represents the tensors that will be the placeholder for the indices in the log group.
+        :param name: string. name of the log group
+        :param record_interval: int, record the interval of the log group
+        :param feed_tensors a list of Tensor obj to hold the name of the feed_dict
         self.train will check the **kwargs in order to match those names
         :return:
         """
@@ -158,6 +191,8 @@ class Model:
                 _existed = True
 
         directory = self.log_folder + '/' + name
+        if feed_tensors is None:
+            feed_tensors = [self.features, self.targets]
         # sanitary check the feed tensor
         for tensor in feed_tensors:
             if not isinstance(tensor, tf.Tensor):
@@ -177,11 +212,11 @@ class Model:
     def _add_to_summary_writer(self, log_group, summary):
         _existed = False
         index = None
+        # check for duplication
         for idx, writer in enumerate(self.file_writers):
             if writer['name'] is log_group:
                 _existed = True
                 index = idx
-
         if _existed:
             writer = self.file_writers[index]
         else:
@@ -201,10 +236,21 @@ class Model:
         self._add_to_summary_writer(log_group=group, summary=summary)
 
     def log_histogram(self, name, tensor, group):
+        """
+        Add a tf.summary.histogram log to the log_group
+        :param name: string, name of the histogram
+        :param tensor: tf.Tensor, the log tensor
+        :param group: string, log group name
+        :return:
+        """
         summary = tf.summary.histogram(name, tensor)
         self._add_to_summary_writer(log_group=group, summary=summary)
 
     def finalized_log(self):
+        """
+        Finalized log process, merge all the summary ops.
+        :return:
+        """
         for writer in self.file_writers:
             summary_op = tf.summary.merge(writer['summaries'],
                                           name=writer['name'] + '_summaries')
@@ -229,6 +275,11 @@ class Model:
                 writer['writer'].add_summary(summary=summaries, global_step=step)
 
     def hook_session(self, session):
+        """
+        Saving process should know session, so should hook session here.
+        :param session:
+        :return:
+        """
         self.session = session
 
     def add_meta_graph_and_variables(self, tags):
@@ -262,7 +313,13 @@ class Model:
         self.saving_strategy['indicator_tensor'] = indicator_tensor
         self.saving_strategy['compare_fn'] = compare_fn
 
-    def save(self, step, feed):
+    def save(self, step, feed_dict):
+        """
+        Save the model by step and feed_dict
+        :param step:
+        :param feed_dict:
+        :return:
+        """
         # detect current_best_model
         current_best_model = dict(
             performance=None
@@ -276,7 +333,7 @@ class Model:
             # check performance
             # TODO: how to handle the situation when multiple input of saver indicator
             performance = self.session.run(self.saving_strategy['indicator_tensor'],
-                                           feed_dict=feed)
+                                           feed_dict=feed_dict)
             print(performance)
             # compare it to the current best model
             # if performance is better, add it to the current best model list
@@ -293,6 +350,11 @@ class Model:
                 # TODO: delete previous saved model, check python os fs delete api
 
     def load(self, session):
+        """
+        Load the saved model unfinished version.
+        :param session:
+        :return:
+        """
         tf.saved_model.loader.load(session, self.tags, self.model_folder)
 
     def train(self,
@@ -315,7 +377,7 @@ class Model:
         """
         with tf.Session(graph=self.graph) as sess:
             # define training ops
-            train = optimizer(learning_rate=learning_rate).minimize(self.loss)
+            train = optimizer(learning_rate=learning_rate).minimize(self.losses)
 
             # just a fancier version of tf.global_variables_initializer()
             # get variable first
@@ -339,8 +401,8 @@ class Model:
             for i in range(training_steps):
                 sess.run(train,
                          feed_dict={
-                             self.input_x.name: input_x,
-                             self.input_y.name: input_y
+                             self.features.name: input_x,
+                             self.targets.name: input_y
                          })
                 # TODO: if the log group is undecided or multiple,
                 # how could we define the parameters of the training function
@@ -365,11 +427,11 @@ class Model:
                 for key, value in kwargs.items():
                     if key is 'saving_indicator_feed':
                         self.save(step=i,
-                                  feed=value)
+                                  feed_dict=value)
 
 
 # TODO add a DNN model for convenience
-class DNN(Model):
-    def __init__(self):
-        super().__init__()
-        pass
+# class DNN(Model):
+#     def __init__(self):
+#         super().__init__()
+#         pass

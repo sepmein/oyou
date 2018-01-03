@@ -43,14 +43,14 @@ class TestOyou(TestCase):
         self.assertIs(model.graph, tf.get_default_graph())
         self.assertIs(model.name, 'simple_model')
         self.assertEqual(model.folder, os.getcwd())
-        model.input_x = input_x
-        model.input_y = input_y
+        model.features = input_x
+        model.targets = input_y
         model.prediction = prediction
         self.assertEqual(model.prediction, prediction)
         self.assertEqual(model._prediction, prediction)
 
-        model.loss = loss
-        self.assertEqual(model.loss, loss)
+        model.losses = loss
+        self.assertEqual(model.losses, loss)
 
         # test get tensor by name
         self.assertEqual(model.get_tensor_by_name(prediction.name), prediction)
