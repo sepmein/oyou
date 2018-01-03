@@ -369,7 +369,8 @@ class Model:
               **kwargs):
 
         """
-
+        TODO: 1. rename input_x and input_y
+        TODO: 2. input_x could accept not only numpy array, but also iterator of numpy array
         :param input_x:
         :param input_y:
         :param learning_rate:
