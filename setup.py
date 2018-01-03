@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='oyou',
-      version='0.2.1',
+      version='0.2.3',
       description='Build and make use of tensorflow model with pleasure and flexibility',
       url='http://github.com/sepmein/oyou',
       author='Spencer Zhang',
