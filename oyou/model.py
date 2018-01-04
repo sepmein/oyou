@@ -259,6 +259,8 @@ class Model:
                                           name=writer['name'] + '_summaries')
             writer['summary_op'] = summary_op
 
+
+
     def log(self, session, step, log_group, feed_dict):
         """Log the predefined summaries on the run
 
@@ -361,18 +363,18 @@ class Model:
         tf.saved_model.loader.load(session, self.tags, self.model_folder)
 
     def train(self,
-              input_x,
-              input_y,
+              features,
+              targets,
               learning_rate=0.001,
               training_steps=100000,
               optimizer=tf.train.AdamOptimizer,
               **kwargs):
 
         """
-        TODO: 1. rename input_x and input_y
+        TODO: 1. rename input_x and targets
         TODO: 2. input_x could accept not only numpy array, but also iterator of numpy array
-        :param input_x:
-        :param input_y:
+        :param features:
+        :param targets:
         :param learning_rate:
         :param training_steps:
         :param optimizer:
@@ -392,7 +394,7 @@ class Model:
             init_local = tf.variables_initializer(local_variables)
             sess.run([init_global, init_local])
 
-            # create log op
+            # create log op by calling finalized log
             self.finalized_log()
 
             # hook session for saver
@@ -405,8 +407,8 @@ class Model:
             for i in range(training_steps):
                 sess.run(train,
                          feed_dict={
-                             self.features.name: input_x,
-                             self.targets.name: input_y
+                             self.features.name: features,
+                             self.targets.name: targets
                          })
                 # TODO: if the log group is undecided or multiple,
                 # how could we define the parameters of the training function

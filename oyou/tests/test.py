@@ -113,8 +113,8 @@ class TestOyou(TestCase):
         }, model.saving_strategy)
 
         model.train(
-            input_x=x,
-            input_y=y,
+            features=x,
+            targets=y,
             training_steps=10000,
             learning_rate=0.001,
             training_input_x=x,
