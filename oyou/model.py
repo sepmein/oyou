@@ -3,7 +3,7 @@
 Define Model for building tensorflow object
 """
 import os
-
+import types
 import tensorflow as tf
 
 
@@ -259,8 +259,6 @@ class Model:
                                           name=writer['name'] + '_summaries')
             writer['summary_op'] = summary_op
 
-
-
     def log(self, session, step, log_group, feed_dict):
         """Log the predefined summaries on the run
 
@@ -363,8 +361,7 @@ class Model:
         tf.saved_model.loader.load(session, self.tags, self.model_folder)
 
     def train(self,
-              features,
-              targets,
+              feed_dict,
               learning_rate=0.001,
               training_steps=100000,
               optimizer=tf.train.AdamOptimizer,
@@ -373,8 +370,7 @@ class Model:
         """
         TODO: 1. rename input_x and targets
         TODO: 2. input_x could accept not only numpy array, but also iterator of numpy array
-        :param features:
-        :param targets:
+        :param feed_dict:
         :param learning_rate:
         :param training_steps:
         :param optimizer:
@@ -405,6 +401,13 @@ class Model:
 
             # training steps
             for i in range(training_steps):
+                if isinstance(feed_dict, types.GeneratorType):
+                    features, targets = next(feed_dict)
+                elif feed_dict is list or feed_dict is tuple:
+                    # TODO: add sanity checks
+                    features, targets = feed_dict
+                else:
+                    raise Exception('Training feed dict should be a generator, list or tuple.')
                 sess.run(train,
                          feed_dict={
                              self.features.name: features,
@@ -434,7 +437,6 @@ class Model:
                     if key is 'saving_indicator_feed':
                         self.save(step=i,
                                   feed_dict=value)
-
 
 # TODO add a DNN model for convenience
 # class DNN(Model):
