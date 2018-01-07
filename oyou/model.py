@@ -3,7 +3,8 @@
 Define Model for building tensorflow object
 """
 import os
-import types
+from types import FunctionType, GeneratorType
+from numpy import ndarray
 import tensorflow as tf
 
 
@@ -316,7 +317,7 @@ class Model:
         self.saving_strategy['indicator_tensor'] = indicator_tensor
         self.saving_strategy['compare_fn'] = compare_fn
 
-    def save(self, step, feed_dict):
+    def save(self, step: int, feed_dict):
         """
         Save the model by step and feed_dict
         :param step:
@@ -361,7 +362,8 @@ class Model:
         tf.saved_model.loader.load(session, self.tags, self.model_folder)
 
     def train(self,
-              feed_dict,
+              features,
+              targets,
               learning_rate=0.001,
               training_steps=100000,
               optimizer=tf.train.AdamOptimizer,
@@ -370,7 +372,8 @@ class Model:
         """
         TODO: 1. rename input_x and targets
         TODO: 2. input_x could accept not only numpy array, but also iterator of numpy array
-        :param feed_dict:
+        :param features:
+        :param targets:
         :param learning_rate:
         :param training_steps:
         :param optimizer:
@@ -401,17 +404,17 @@ class Model:
 
             # training steps
             for i in range(training_steps):
-                if isinstance(feed_dict, types.GeneratorType):
-                    features, targets = next(feed_dict)
-                elif feed_dict is list or feed_dict is tuple:
-                    # TODO: add sanity checks
-                    features, targets = feed_dict
-                else:
-                    raise Exception('Training feed dict should be a generator, list or tuple.')
+                # if isinstance(feed_dict, types.GeneratorType):
+                #     features, targets = next(feed_dict)
+                # elif feed_dict is list or feed_dict is tuple:
+                #     # TODO: add sanity checks
+                #     features, targets = feed_dict
+                # else:
+                #     raise Exception('Training feed dict should be a generator, list or tuple.')
                 sess.run(train,
                          feed_dict={
-                             self.features.name: features,
-                             self.targets.name: targets
+                             self.features.name: self.get_data(features),
+                             self.targets.name: self.get_data(targets)
                          })
                 # TODO: if the log group is undecided or multiple,
                 # how could we define the parameters of the training function
@@ -426,17 +429,27 @@ class Model:
                     for key, value in kwargs.items():
                         for tensor in writer['feed_dict']:
                             if writer['name'] + '_' + tensor.name == key + ':0':
-                                collection[tensor.name] = value
+                                collection[tensor.name] = self.get_data(value)
                     self.log(session=sess,
                              step=i + 1,
                              log_group=writer['name'],
                              feed_dict=collection)
 
                 # TODO: saving strategy
+                # re-run the same saving indicator seems not so efficient
                 for key, value in kwargs.items():
                     if key is 'saving_indicator_feed':
                         self.save(step=i,
                                   feed_dict=value)
+
+    @staticmethod
+    def get_data(inputs):
+        if isinstance(inputs, FunctionType):
+            return inputs()
+        elif isinstance(inputs, GeneratorType):
+            return next(inputs)
+        elif isinstance(inputs, ndarray) or isinstance(inputs, list):
+            return inputs
 
 # TODO add a DNN model for convenience
 # class DNN(Model):
