@@ -300,6 +300,7 @@ class Model:
     def define_saving_strategy(self,
                                indicator_tensor,
                                interval,
+                               feed_dict,
                                max_to_keep=5,
                                compare_fn=_default_compare_fn_for_saving_strategy
                                ):
@@ -316,6 +317,7 @@ class Model:
         self.saving_strategy['max_to_keep'] = max_to_keep
         self.saving_strategy['indicator_tensor'] = indicator_tensor
         self.saving_strategy['compare_fn'] = compare_fn
+        self.saving_strategy['feed_dict'] = feed_dict
 
     def save(self, step: int, feed_dict):
         """
@@ -437,10 +439,13 @@ class Model:
 
                 # TODO: saving strategy
                 # re-run the same saving indicator seems not so efficient
+                saving_feeds = {}
                 for key, value in kwargs.items():
-                    if key is 'saving_indicator_feed':
-                        self.save(step=i,
-                                  feed_dict=value)
+                    for feed in self.saving_strategy['feed_dict']:
+                        if key + ':0' == 'saving' + '_' + feed.name:
+                            saving_feeds[feed.name] = self.get_data(value)
+                self.save(step=i,
+                          feed_dict=saving_feeds)
 
     @staticmethod
     def get_data(inputs):
