@@ -121,10 +121,8 @@ class TestOyou(TestCase):
             training_input_y=y,
             cross_validation_input_x=x,
             cross_validation_input_y=y,
-            saving_indicator_feed={
-                input_x: x,
-                input_y: y
-            }
+            saving_input_x=x,
+            saving_input_y=y
         )
 
         session.close()
