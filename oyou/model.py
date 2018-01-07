@@ -338,6 +338,7 @@ class Model:
         if step % self.saving_strategy['interval'] == 0:
             # check performance
             # TODO: how to handle the situation when multiple input of saver indicator
+            print(feed_dict)
             performance = self.session.run(self.saving_strategy['indicator_tensor'],
                                            feed_dict=feed_dict)
             print(performance)
@@ -442,6 +443,8 @@ class Model:
                 saving_feeds = {}
                 for key, value in kwargs.items():
                     for feed in self.saving_strategy['feed_dict']:
+                        print(feed.name)
+                        print(key)
                         if key + ':0' == 'saving' + '_' + feed.name:
                             saving_feeds[feed.name] = self.get_data(value)
                 self.save(step=i,
