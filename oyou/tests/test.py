@@ -102,14 +102,15 @@ class TestOyou(TestCase):
         model.define_saving_strategy(
             indicator_tensor=loss,
             interval=10,
-            max_to_keep=5
+            feed_dict=[input_x, input_y]
         )
         self.assertDictEqual({
             'interval': 10,
             'max_to_keep': 5,
             'indicator_tensor': loss,
             'top_model_list': [dict(performance=None)],
-            'compare_fn': _default_compare_fn_for_saving_strategy
+            'compare_fn': _default_compare_fn_for_saving_strategy,
+            'feed_dict': [input_x, input_y]
         }, model.saving_strategy)
 
         model.train(
