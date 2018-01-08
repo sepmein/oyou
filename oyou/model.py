@@ -452,7 +452,7 @@ class Model:
 
     @staticmethod
     def get_data(inputs):
-        if isinstance(inputs, FunctionType):
+        if callable(inputs):
             return inputs()
         elif isinstance(inputs, GeneratorType):
             return next(inputs)
