@@ -274,7 +274,10 @@ class Model:
         :return:
         """
         for index, writer in enumerate(self.file_writers):
-            if writer['record_interval'] % step == 0 and writer['name'] is log_group:
+            # print('log step:', step, '. writer name:',
+            #       writer['name'], ' , log_group is :', log_group,
+            #       '. record interval: ', writer['record_interval'])
+            if step % writer['record_interval']  == 0 and writer['name'] is log_group:
                 summaries = session.run(writer['summary_op'], feed_dict=feed_dict)
                 writer['writer'].add_summary(summary=summaries, global_step=step)
 
@@ -338,10 +341,8 @@ class Model:
         if step % self.saving_strategy['interval'] == 0:
             # check performance
             # TODO: how to handle the situation when multiple input of saver indicator
-            print(feed_dict)
             performance = self.session.run(self.saving_strategy['indicator_tensor'],
                                            feed_dict=feed_dict)
-            print(performance)
             # compare it to the current best model
             # if performance is better, add it to the current best model list
             # and save it on the disk
@@ -414,6 +415,7 @@ class Model:
                 #     features, targets = feed_dict
                 # else:
                 #     raise Exception('Training feed dict should be a generator, list or tuple.')
+                # print(i)
                 sess.run(train,
                          feed_dict={
                              self.features.name: self.get_data(features),
@@ -440,19 +442,17 @@ class Model:
 
                 # TODO: saving strategy
                 # re-run the same saving indicator seems not so efficient
-                saving_feeds = {}
-                for key, value in kwargs.items():
-                    for feed in self.saving_strategy['feed_dict']:
-                        print(feed.name)
-                        print(key)
-                        if key + ':0' == 'saving' + '_' + feed.name:
-                            saving_feeds[feed.name] = self.get_data(value)
-                self.save(step=i,
-                          feed_dict=saving_feeds)
+                # saving_feeds = {}
+                # for key, value in kwargs.items():
+                #     for feed in self.saving_strategy['feed_dict']:
+                #         if key + ':0' == 'saving' + '_' + feed.name:
+                #             saving_feeds[feed.name] = self.get_data(value)
+                # self.save(step=i,
+                #           feed_dict=saving_feeds)
 
     @staticmethod
     def get_data(inputs):
-        if isinstance(inputs, FunctionType):
+        if callable(inputs):
             return inputs()
         elif isinstance(inputs, GeneratorType):
             return next(inputs)
