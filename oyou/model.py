@@ -170,8 +170,7 @@ class Model:
     def create_log_group(self,
                          name,
                          record_interval=10,
-                         feed_tensors=None
-                         ):
+                         feed_tensors=None):
         """
         Create log groups for tf.summary.File_Writer. Example usage:
         We may want to record different indicators for training and cross validation process. So we could create two log
@@ -208,12 +207,13 @@ class Model:
                 'writer': tf.summary.FileWriter(logdir=directory, graph=self.graph),
                 'record_interval': record_interval,
                 'summaries': [],
+                'ops': [],
                 'feed_dict': feed_tensors
             })
         else:
             raise Exception('Calling create log group, log group: ' + name + ' already existed.')
 
-    def _add_to_summary_writer(self, log_group, summary):
+    def _add_to_summary_writer(self, log_group, summary, op=None):
         _existed = False
         index = None
         # check for duplication
@@ -226,8 +226,10 @@ class Model:
         else:
             raise Exception('Called _added_to_summary_writer, summary group should not defined')
         writer['summaries'].append(summary)
+        if op is not None:
+            writer['ops'].append(op)
 
-    def log_scalar(self, name, tensor, group):
+    def log_scalar(self, name, tensor, group, op=None):
         """
         log a scalar summary,
         to a log group
@@ -237,9 +239,9 @@ class Model:
         :return:
         """
         summary = tf.summary.scalar(name=name, tensor=tensor)
-        self._add_to_summary_writer(log_group=group, summary=summary)
+        self._add_to_summary_writer(log_group=group, summary=summary, op=op)
 
-    def log_histogram(self, name, tensor, group):
+    def log_histogram(self, name, tensor, group, op=None):
         """
         Add a tf.summary.histogram log to the log_group
         :param name: string, name of the histogram
@@ -248,7 +250,7 @@ class Model:
         :return:
         """
         summary = tf.summary.histogram(name, tensor)
-        self._add_to_summary_writer(log_group=group, summary=summary)
+        self._add_to_summary_writer(log_group=group, summary=summary, op=op)
 
     def finalized_log(self):
         """
@@ -277,8 +279,8 @@ class Model:
             # print('log step:', step, '. writer name:',
             #       writer['name'], ' , log_group is :', log_group,
             #       '. record interval: ', writer['record_interval'])
-            if step % writer['record_interval']  == 0 and writer['name'] is log_group:
-                summaries = session.run(writer['summary_op'], feed_dict=feed_dict)
+            if step % writer['record_interval'] == 0 and writer['name'] is log_group:
+                summaries, _ops = session.run([writer['summary_op'], writer['ops']], feed_dict=feed_dict)
                 writer['writer'].add_summary(summary=summaries, global_step=step)
 
     def hook_session(self, session):
