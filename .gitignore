@@ -105,3 +105,6 @@ ENV/
 
 # tensorflow
 events.*
+
+oyou/tests/model
+oyou/tests/log
