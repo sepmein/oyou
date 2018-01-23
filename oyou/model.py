@@ -417,7 +417,7 @@ class Model:
                 #     features, targets = feed_dict
                 # else:
                 #     raise Exception('Training feed dict should be a generator, list or tuple.')
-                # print(i)
+                print(i)
                 sess.run(train,
                          feed_dict={
                              self.features.name: self.get_data(features),
@@ -431,26 +431,26 @@ class Model:
                 # then add the arg to the collection
                 # then run the file writer with the collection
                 # TODO: Does all the inputs of the log group has been defined? It should be checked
-                for index, writer in enumerate(self.file_writers):
-                    collection = {}
-                    for key, value in kwargs.items():
+                # loop through kwargs
+                for key, value in kwargs.items():
+                    # for all file writers, check it's name
+                    for index, writer in enumerate(self.file_writers):
+                        collection = {}
                         for tensor in writer['feed_dict']:
                             if writer['name'] + '_' + tensor.name == key + ':0':
                                 collection[tensor.name] = self.get_data(value)
-                    self.log(session=sess,
-                             step=i + 1,
-                             log_group=writer['name'],
-                             feed_dict=collection)
+                        self.log(session=sess,
+                                 step=i + 1,
+                                 log_group=writer['name'],
+                                 feed_dict=collection)
 
-                # TODO: saving strategy
-                # re-run the same saving indicator seems not so efficient
-                # saving_feeds = {}
-                # for key, value in kwargs.items():
-                #     for feed in self.saving_strategy['feed_dict']:
-                #         if key + ':0' == 'saving' + '_' + feed.name:
-                #             saving_feeds[feed.name] = self.get_data(value)
-                # self.save(step=i,
-                #           feed_dict=saving_feeds)
+                    # for feed in saving strategy, if name in kwargs matches its name
+                    saving_feeds = {}
+                    for feed in self.saving_strategy['feed_dict']:
+                        if key + ':0' == 'saving' + '_' + feed.name:
+                            saving_feeds[feed.name] = self.get_data(value)
+                    self.save(step=i,
+                              feed_dict=saving_feeds)
 
     @staticmethod
     def get_data(inputs):
@@ -460,9 +460,3 @@ class Model:
             return next(inputs)
         elif isinstance(inputs, ndarray) or isinstance(inputs, list):
             return inputs
-
-# TODO add a DNN model for convenience
-# class DNN(Model):
-#     def __init__(self):
-#         super().__init__()
-#         pass
