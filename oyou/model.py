@@ -53,17 +53,9 @@ class Model:
         self.log_folder = folder + '/log'
         self.model_folder = folder + '/model'
         # FIXME: if trained before, model saver dir is existed, reinitiating the same instance will cause error
-        self.saver = tf.saved_model.builder.SavedModelBuilder(export_dir=self.model_folder)
+        self.savers = []
         # TODO: define default saving strategy
-        self.saving_strategy = {
-            'interval': 10,
-            'max_to_keep': 5,
-            'indicator_tensor': self._losses,
-            'top_model_list': [
-                dict(performance=None)
-            ],
-            'compare_fn': _default_compare_fn_for_saving_strategy
-        }
+        self.saving_strategy = None
 
     @property
     def name(self):
@@ -236,6 +228,7 @@ class Model:
         :param name:
         :param tensor:
         :param group:
+        :param op:
         :return:
         """
         summary = tf.summary.scalar(name=name, tensor=tensor)
@@ -247,6 +240,7 @@ class Model:
         :param name: string, name of the histogram
         :param tensor: tf.Tensor, the log tensor
         :param group: string, log group name
+        :param op:
         :return:
         """
         summary = tf.summary.histogram(name, tensor)
@@ -300,13 +294,14 @@ class Model:
         if not self.session:
             raise Exception('call hook session first')
         self.tags = tags
-        self.saver.add_meta_graph_and_variables(self.session, tags)
+        for saver in self.savers:
+            saver.add_meta_graph_and_variables(self.session, tags)
 
     def define_saving_strategy(self,
                                indicator_tensor,
                                interval,
                                feed_dict,
-                               max_to_keep=5,
+                               max_to_keep,
                                compare_fn=_default_compare_fn_for_saving_strategy
                                ):
         """
@@ -318,11 +313,17 @@ class Model:
         # if self.saver_indicator is None and not isinstance(self.saver_indicator, tf.Tensor):
         #     raise Exception('Please set saver_indicator first to use define_saving_strategy function,'
         #                     ' because the model should know what to decide which one to save.')
-        self.saving_strategy['interval'] = interval
-        self.saving_strategy['max_to_keep'] = max_to_keep
-        self.saving_strategy['indicator_tensor'] = indicator_tensor
-        self.saving_strategy['compare_fn'] = compare_fn
-        self.saving_strategy['feed_dict'] = feed_dict
+        self.saving_strategy = SavingStrategy(
+            indicator_tensor=indicator_tensor,
+            interval=interval,
+            feed_dict=feed_dict,
+            max_to_keep=max_to_keep,
+            compare_fn=compare_fn
+        )
+        self.savers = [
+            tf.saved_model.builder.SavedModelBuilder(export_dir=self.model_folder + '/' + str(_))
+            for _ in range(max_to_keep)
+        ]
 
     def save(self, step: int, feed_dict):
         """
@@ -331,33 +332,34 @@ class Model:
         :param feed_dict:
         :return:
         """
-        # detect current_best_model
-        current_best_model = dict(
-            performance=None
-        )
-        if len(self.saving_strategy['top_model_list']) is not 0:
-            current_best_model = self.saving_strategy['top_model_list'][-1]
-
         if self.saving_strategy is None:
             raise Exception('Should define saving strategy before saving.')
-        if step % self.saving_strategy['interval'] == 0:
+        if step % self.saving_strategy.interval == 0:
             # check performance
             # TODO: how to handle the situation when multiple input of saver indicator
-            performance = self.session.run(self.saving_strategy['indicator_tensor'],
+
+            performance = self.session.run(self.saving_strategy.indicator_tensor,
                                            feed_dict=feed_dict)
             # compare it to the current best model
             # if performance is better, add it to the current best model list
             # and save it on the disk
             # TODO: how to decide performance is better? should use greater? or miner? how to predefine this
             # particular information in the saving strategy.
-            if self.saving_strategy['compare_fn'](performance, current_best_model['performance']):
-                self.saving_strategy['top_model_list'].append({
-                    'performance': performance,
-                    'step': step
-                })
-                self.saving_strategy['top_model_list'].pop()
-                self.saver.save()
-                # TODO: delete previous saved model, check python os fs delete api
+            for index, model in enumerate(self.saving_strategy.top_model_list):
+                if self.saving_strategy.compare_fn(performance, model['performance']):
+                    self.saving_strategy.top_model_list.insert(
+                        index + 1,
+                        {
+                            'performance': performance,
+                            'step': step
+                        })
+                    self.savers[index].save()
+                    break
+
+            # remove the first item of the top list
+            self.saving_strategy.pop_top()
+
+            # TODO: delete previous saved model, check python os fs delete api
 
     def load(self, session):
         """
@@ -417,7 +419,6 @@ class Model:
                 #     features, targets = feed_dict
                 # else:
                 #     raise Exception('Training feed dict should be a generator, list or tuple.')
-                print(i)
                 sess.run(train,
                          feed_dict={
                              self.features.name: self.get_data(features),
@@ -432,25 +433,26 @@ class Model:
                 # then run the file writer with the collection
                 # TODO: Does all the inputs of the log group has been defined? It should be checked
                 # loop through kwargs
-                for key, value in kwargs.items():
-                    # for all file writers, check it's name
-                    for index, writer in enumerate(self.file_writers):
-                        collection = {}
+                # for all file writers, check it's name
+                for index, writer in enumerate(self.file_writers):
+                    collection = {}
+                    for key, value in kwargs.items():
                         for tensor in writer['feed_dict']:
                             if writer['name'] + '_' + tensor.name == key + ':0':
                                 collection[tensor.name] = self.get_data(value)
-                        self.log(session=sess,
-                                 step=i + 1,
-                                 log_group=writer['name'],
-                                 feed_dict=collection)
+                    self.log(session=sess,
+                             step=i + 1,
+                             log_group=writer['name'],
+                             feed_dict=collection)
 
-                    # for feed in saving strategy, if name in kwargs matches its name
-                    saving_feeds = {}
-                    for feed in self.saving_strategy['feed_dict']:
+                # for feed in saving strategy, if name in kwargs matches its name
+                saving_feeds = {}
+                for key, value in kwargs.items():
+                    for feed in self.saving_strategy.feed_dict:
                         if key + ':0' == 'saving' + '_' + feed.name:
                             saving_feeds[feed.name] = self.get_data(value)
-                    self.save(step=i,
-                              feed_dict=saving_feeds)
+                self.save(step=i,
+                          feed_dict=saving_feeds)
 
     @staticmethod
     def get_data(inputs):
@@ -460,3 +462,31 @@ class Model:
             return next(inputs)
         elif isinstance(inputs, ndarray) or isinstance(inputs, list):
             return inputs
+
+
+class SavingStrategy:
+    """
+
+    """
+
+    def __init__(self,
+                 indicator_tensor,
+                 feed_dict,
+                 compare_fn=_default_compare_fn_for_saving_strategy,
+                 interval=50,
+                 max_to_keep=10):
+        """
+
+        """
+        self.interval = interval
+        self.max_to_keep = max_to_keep
+        self.indicator_tensor = indicator_tensor
+        self.compare_fn = compare_fn
+        self.feed_dict = feed_dict
+        self.top_model_list = [
+            {'performance': None}
+        ]
+
+    def pop_top(self):
+        if len(self.top_model_list) >= self.max_to_keep:
+            self.top_model_list.pop(0)
