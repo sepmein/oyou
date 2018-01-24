@@ -3,9 +3,10 @@
 Define Model for building tensorflow object
 """
 import os
-from types import FunctionType, GeneratorType
-from numpy import ndarray
+from types import GeneratorType
+
 import tensorflow as tf
+from numpy import ndarray
 
 
 def _default_compare_fn_for_saving_strategy(a, b):
@@ -348,7 +349,7 @@ class Model:
             for index, model in enumerate(self.saving_strategy.top_model_list):
                 if self.saving_strategy.compare_fn(performance, model['performance']):
                     self.saving_strategy.top_model_list.insert(
-                        index + 1,
+                        index,
                         {
                             'performance': performance,
                             'step': step
@@ -357,7 +358,7 @@ class Model:
                     break
 
             # remove the first item of the top list
-            self.saving_strategy.pop_top()
+            self.saving_strategy.pop()
 
             # TODO: delete previous saved model, check python os fs delete api
 
@@ -487,6 +488,6 @@ class SavingStrategy:
             {'performance': None}
         ]
 
-    def pop_top(self):
+    def pop(self):
         if len(self.top_model_list) >= self.max_to_keep:
-            self.top_model_list.pop(0)
+            self.top_model_list.pop()
