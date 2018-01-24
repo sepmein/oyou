@@ -362,13 +362,15 @@ class Model:
 
             # TODO: delete previous saved model, check python os fs delete api
 
-    def load(self, session):
+    def load(self, session, ensemble=True):
         """
         Load the saved model unfinished version.
         :param session:
+        :param ensemble: Boolean,
         :return:
         """
-        tf.saved_model.loader.load(session, self.tags, self.model_folder)
+        if not ensemble:
+            tf.saved_model.loader.load(session, self.tags, self.model_folder + '/0')
 
     def train(self,
               features,
@@ -376,6 +378,7 @@ class Model:
               learning_rate=0.001,
               training_steps=100000,
               optimizer=tf.train.AdamOptimizer,
+              close_session=True,
               **kwargs):
 
         """
@@ -389,74 +392,79 @@ class Model:
         :param kwargs:
         :return:
         """
-        with tf.Session(graph=self.graph) as sess:
-            # define training ops
-            train = optimizer(learning_rate=learning_rate).minimize(self.losses)
+        sess = tf.Session(graph=self.graph)
+        # define training ops
+        train = optimizer(learning_rate=learning_rate).minimize(self.losses)
 
-            # just a fancier version of tf.global_variables_initializer()
-            # get variable first
-            global_variables = self.graph.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
-            # create init op of global variables
-            init_global = tf.variables_initializer(global_variables)
-            local_variables = self.graph.get_collection(tf.GraphKeys.LOCAL_VARIABLES)
-            init_local = tf.variables_initializer(local_variables)
-            sess.run([init_global, init_local])
+        # just a fancier version of tf.global_variables_initializer()
+        # get variable first
+        global_variables = self.graph.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
+        # create init op of global variables
+        init_global = tf.variables_initializer(global_variables)
+        local_variables = self.graph.get_collection(tf.GraphKeys.LOCAL_VARIABLES)
+        init_local = tf.variables_initializer(local_variables)
+        sess.run([init_global, init_local])
 
-            # create log op by calling finalized log
-            self.finalized_log()
+        # create log op by calling finalized log
+        self.finalized_log()
 
-            # hook session for saver
-            self.hook_session(sess)
+        # hook session for saver
+        self.hook_session(sess)
 
-            # add meta graph and variables
-            self.add_meta_graph_and_variables(tags=self.tags)
+        # add meta graph and variables
+        self.add_meta_graph_and_variables(tags=self.tags)
 
-            # training steps
-            for i in range(training_steps):
-                # if isinstance(feed_dict, types.GeneratorType):
-                #     features, targets = next(feed_dict)
-                # elif feed_dict is list or feed_dict is tuple:
-                #     # TODO: add sanity checks
-                #     features, targets = feed_dict
-                # else:
-                #     raise Exception('Training feed dict should be a generator, list or tuple.')
-                sess.run(train,
-                         feed_dict={
-                             self.features.name: self.get_data(features),
-                             self.targets.name: self.get_data(targets)
-                         })
-                # TODO: if the log group is undecided or multiple,
-                # how could we define the parameters of the training function
-                # TODO: add some explanations for better understanding
-                # for every file writer, check all the input kwargs
-                # if the args name is the following api : writer name + _ + input tensor name
-                # then add the arg to the collection
-                # then run the file writer with the collection
-                # TODO: Does all the inputs of the log group has been defined? It should be checked
-                # loop through kwargs
-                # for all file writers, check it's name
-                for index, writer in enumerate(self.file_writers):
-                    collection = {}
-                    for key, value in kwargs.items():
-                        for tensor in writer['feed_dict']:
-                            if writer['name'] + '_' + tensor.name == key + ':0':
-                                collection[tensor.name] = self.get_data(value)
-                    self.log(session=sess,
-                             step=i + 1,
-                             log_group=writer['name'],
-                             feed_dict=collection)
-
-                # for feed in saving strategy, if name in kwargs matches its name
-                saving_feeds = {}
+        # training steps
+        for i in range(training_steps):
+            # if isinstance(feed_dict, types.GeneratorType):
+            #     features, targets = next(feed_dict)
+            # elif feed_dict is list or feed_dict is tuple:
+            #     # TODO: add sanity checks
+            #     features, targets = feed_dict
+            # else:
+            #     raise Exception('Training feed dict should be a generator, list or tuple.')
+            sess.run(train,
+                     feed_dict={
+                         self.features.name: self.get_data(features),
+                         self.targets.name: self.get_data(targets)
+                     })
+            # TODO: if the log group is undecided or multiple,
+            # how could we define the parameters of the training function
+            # TODO: add some explanations for better understanding
+            # for every file writer, check all the input kwargs
+            # if the args name is the following api : writer name + _ + input tensor name
+            # then add the arg to the collection
+            # then run the file writer with the collection
+            # TODO: Does all the inputs of the log group has been defined? It should be checked
+            # loop through kwargs
+            # for all file writers, check it's name
+            for index, writer in enumerate(self.file_writers):
+                collection = {}
                 for key, value in kwargs.items():
-                    for feed in self.saving_strategy.feed_dict:
-                        if key + ':0' == 'saving' + '_' + feed.name:
-                            saving_feeds[feed.name] = self.get_data(value)
-                self.save(step=i,
-                          feed_dict=saving_feeds)
+                    for tensor in writer['feed_dict']:
+                        if writer['name'] + '_' + tensor.name == key + ':0':
+                            collection[tensor.name] = self.get_data(value)
+                self.log(session=sess,
+                         step=i + 1,
+                         log_group=writer['name'],
+                         feed_dict=collection)
+
+            # for feed in saving strategy, if name in kwargs matches its name
+            saving_feeds = {}
+            for key, value in kwargs.items():
+                for feed in self.saving_strategy.feed_dict:
+                    if key + ':0' == 'saving' + '_' + feed.name:
+                        saving_feeds[feed.name] = self.get_data(value)
+            self.save(step=i,
+                      feed_dict=saving_feeds)
+
+        # if close session(default):
+        if close_session:
+            sess.close()
 
     @staticmethod
     def get_data(inputs):
+
         if callable(inputs):
             return inputs()
         elif isinstance(inputs, GeneratorType):
