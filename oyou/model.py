@@ -286,17 +286,83 @@ class Model:
         """
         self.session = session
 
-    def add_meta_graph_and_variables(self, tags):
+    def add_meta_graph_and_variables(self):
         """
         add meta graph and variables to saver
-        :param tags:
         :return:
         """
         if not self.session:
             raise Exception('call hook session first')
-        self.tags = tags
+        tags = [tf.saved_model.tag_constants.SERVING]
+        # dependencies: start
+        input_key = 'input'
+        output_key = 'output'
+        input_item = self.features
+        output_item = self.prediction
+        signature_key = tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
+        # end
+        signature_definition = tf.saved_model.signature_def_utils.predict_signature_def(
+            inputs={input_key: input_item},
+            outputs={output_key: output_item}
+        )
+        signature_definition_map = {
+            signature_key: signature_definition
+        }
         for saver in self.savers:
-            saver.add_meta_graph_and_variables(self.session, tags)
+            saver.add_meta_graph_and_variables(sess=self.session,
+                                               tags=tags,
+                                               signature_def_map=signature_definition_map)
+
+    @classmethod
+    def load(cls, path):
+        """
+        Load the saved model
+        :return:
+        """
+        tf.reset_default_graph()
+        session = tf.Session()
+        # dependencies re-injection
+        # TODO, concat this part with self.add_meta_graph_variables part
+        signature_key = tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
+        input_key = 'input'
+        output_key = 'output'
+        tags = [tf.saved_model.tag_constants.SERVING]
+
+        # load meta graph
+        meta_graph_definition = tf.saved_model.loader.load(
+            sess=session,
+            tags=tags,
+            export_dir=path
+        )
+
+        # get signature_definition_map
+        signature_definition_map = meta_graph_definition.signature_def
+        target_signature = signature_definition_map[signature_key]
+
+        # load features_signature, get feature name and targets name
+        features_name = target_signature.inputs[input_key].name
+        targets_name = target_signature.outputs[output_key].name
+
+        # get features in the graph by name
+        features = session.graph.get_tensor_by_name(features_name)
+        targets = session.graph.get_tensor_by_name(targets_name)
+
+        # TODO: How to get name?
+        model = cls(graph=session.graph, folder=path)
+        model.features = features
+        model.prediction = targets
+        model.session = session
+        return model
+
+    def predict(self, inputs):
+        """
+        :param inputs:
+        :return:
+        """
+        predictions = self.session.run(self.prediction, {
+            self.features.name: inputs
+        })
+        return predictions
 
     def define_saving_strategy(self,
                                indicator_tensor,
@@ -362,20 +428,10 @@ class Model:
 
             # TODO: delete previous saved model, check python os fs delete api
 
-    def load(self, session, ensemble=True):
-        """
-        Load the saved model unfinished version.
-        :param session:
-        :param ensemble: Boolean,
-        :return:
-        """
-        if not ensemble:
-            tf.saved_model.loader.load(session, self.tags, self.model_folder + '/0')
-
     def train(self,
               features,
               targets,
-              learning_rate=0.001,
+              # learning_rate=0.001,
               training_steps=100000,
               optimizer=tf.train.AdamOptimizer,
               close_session=True,
@@ -390,12 +446,28 @@ class Model:
         :param training_steps:
         :param optimizer:
         :param kwargs:
+        :param close_session: Bool
         :return:
         """
         sess = tf.Session(graph=self.graph)
         # define training ops
-        train = optimizer(learning_rate=learning_rate).minimize(self.losses)
+        global_step = tf.train.create_global_step(graph=sess.graph)
+        learning_rate = tf.train.exponential_decay(learning_rate=0.01,
+                                                   global_step=global_step,
+                                                   decay_steps=1000,
+                                                   decay_rate=0.5)
 
+        optimizer_fn = optimizer(learning_rate=learning_rate)
+        gradient_and_vars = optimizer_fn.compute_gradients(self.losses)
+        i = 0
+        for grad, var in gradient_and_vars:
+            self.log_histogram(str(i), grad, 'training')
+            i += 1
+        capped_gvs = [
+            (tf.clip_by_norm(grad, clip_norm=1), var) for grad, var in gradient_and_vars]
+        for grad, var in capped_gvs:
+            self.log_histogram(grad.name, grad, 'training')
+        train = optimizer_fn.apply_gradients(grads_and_vars=capped_gvs)
         # just a fancier version of tf.global_variables_initializer()
         # get variable first
         global_variables = self.graph.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
@@ -412,7 +484,7 @@ class Model:
         self.hook_session(sess)
 
         # add meta graph and variables
-        self.add_meta_graph_and_variables(tags=self.tags)
+        self.add_meta_graph_and_variables()
 
         # training steps
         for i in range(training_steps):
