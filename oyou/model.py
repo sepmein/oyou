@@ -464,7 +464,7 @@ class Model:
             self.log_histogram(str(i), grad, 'training')
             i += 1
         capped_gvs = [
-            (tf.clip_by_norm(grad, clip_norm=1), var) for grad, var in gradient_and_vars]
+            (tf.clip_by_norm(grad, clip_norm=1.0), var) for grad, var in gradient_and_vars]
         for grad, var in capped_gvs:
             self.log_histogram(grad.name, grad, 'training')
         train = optimizer_fn.apply_gradients(grads_and_vars=capped_gvs)
@@ -495,6 +495,17 @@ class Model:
             #     features, targets = feed_dict
             # else:
             #     raise Exception('Training feed dict should be a generator, list or tuple.')
+            for i in range(training_epochs):
+                _, state = sess.run([train, state], feed_dict={
+                    self.features.name: self.get_data(features),
+                    self.targets.name: self.get_data(targets),
+                    state: state
+                })
+
+            for i in range(cv_epochs):
+                _, state = sess.run([train, state], feed_dict={
+                    self.features.name: self.get_data()
+                })
             sess.run(train,
                      feed_dict={
                          self.features.name: self.get_data(features),
