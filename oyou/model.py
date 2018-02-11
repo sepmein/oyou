@@ -428,10 +428,32 @@ class Model:
 
             # TODO: delete previous saved model, check python os fs delete api
 
+    def run_step(self,
+                 name,
+                 tensor_to_run,
+                 feed_dict,
+                 frequency,
+                 output_travel_forward_in_time,
+                 output_to_other_run_step
+                 ):
+        """
+        TODO: define a single running step, that:
+            pick a tensor to run,
+
+        :param name:
+        :param tensor_to_run:
+        :param feed_dict:
+        :param frequency:
+        :param output_travel_forward_in_time:
+        :param output_to_other_run_step:
+        :return:
+        """
+        pass
+
     def train(self,
               features,
               targets,
-              # learning_rate=0.001,
+              learning_rate=0.001,
               training_steps=100000,
               optimizer=tf.train.AdamOptimizer,
               close_session=True,
@@ -452,12 +474,12 @@ class Model:
         sess = tf.Session(graph=self.graph)
         # define training ops
         global_step = tf.train.create_global_step(graph=sess.graph)
-        learning_rate = tf.train.exponential_decay(learning_rate=0.01,
-                                                   global_step=global_step,
-                                                   decay_steps=1000,
-                                                   decay_rate=0.5)
+        decayed_learning_rate = tf.train.exponential_decay(learning_rate=learning_rate,
+                                                           global_step=global_step,
+                                                           decay_steps=1000,
+                                                           decay_rate=0.5)
 
-        optimizer_fn = optimizer(learning_rate=learning_rate)
+        optimizer_fn = optimizer(learning_rate=decayed_learning_rate)
         gradient_and_vars = optimizer_fn.compute_gradients(self.losses)
         i = 0
         for grad, var in gradient_and_vars:
