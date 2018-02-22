@@ -66,10 +66,6 @@ class Model:
         """
         return self._name
 
-    @name.setter
-    def name(self, value):
-        self._name = value
-
     @property
     def features(self):
         """
@@ -453,127 +449,6 @@ class Model:
         """
         pass
 
-    def train_rnn(self,
-                  features,
-                  targets,
-                  cv_features,
-                  cv_targets,
-                  training_epochs,
-                  cv_epochs,
-                  learning_rate=0.001,
-                  training_steps=100000,
-                  optimizer=tf.train.AdamOptimizer,
-                  close_session=True,
-                  reuse_state=True,
-                  **kwargs):
-        """
-
-        :param features:
-        :param targets:
-        :param learning_rate:
-        :param training_steps:
-        :param optimizer:
-        :param close_session:
-        :param reuse_state:
-        :return:
-        """
-        sess = tf.Session(graph=self.graph)
-        # define training ops
-        # global_step = tf.train.create_global_step(graph=sess.graph)
-        # decayed_learning_rate = tf.train.exponential_decay(learning_rate=learning_rate,
-        #                                                    global_step=global_step,
-        #                                                    decay_steps=1000,
-        #                                                    decay_rate=0.5)
-
-        optimizer_fn = optimizer(learning_rate=learning_rate)
-        # gradient_and_vars = optimizer_fn.compute_gradients(self.losses)
-        # i = 0
-        # for grad, var in gradient_and_vars:
-        #     self.log_histogram(str(i), grad, 'training')
-        #     i += 1
-        # capped_gvs = [
-        #     (tf.clip_by_norm(grad, clip_norm=1.0), var) for grad, var in gradient_and_vars]
-        # for grad, var in capped_gvs:
-        #     self.log_histogram(grad.name, grad, 'training')
-        train = optimizer_fn.minimize(self.losses)
-        # just a fancier version of tf.global_variables_initializer()
-        # get variable first
-        global_variables = self.graph.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
-        # create init op of global variables
-        init_global = tf.variables_initializer(global_variables)
-        local_variables = self.graph.get_collection(tf.GraphKeys.LOCAL_VARIABLES)
-        init_local = tf.variables_initializer(local_variables)
-        sess.run([init_global, init_local])
-
-        # create log op by calling finalized log
-        self.finalized_log()
-
-        # hook session for saver
-        self.hook_session(sess)
-
-        # add meta graph and variables
-        self.add_meta_graph_and_variables()
-
-        # training steps
-        for i in range(training_steps):
-            # if isinstance(feed_dict, types.GeneratorType):
-            #     features, targets = next(feed_dict)
-            # elif feed_dict is list or feed_dict is tuple:
-            #     # TODO: add sanity checks
-            #     features, targets = feed_dict
-            # else:
-            #     raise Exception('Training feed dict should be a generator, list or tuple.')
-            for i in range(training_epochs):
-                _, state = sess.run([train, state], feed_dict={
-                    self.features.name: self.get_data(features),
-                    self.targets.name: self.get_data(targets),
-                    state: state
-                })
-
-            for i in range(cv_epochs):
-                _, state = sess.run([train, state], feed_dict={
-                    self.features.name: self.get_data(cv_features),
-                    self.targets.name: self.get_data(cv_targets)
-                })
-            sess.run(train,
-                     feed_dict={
-                         self.features.name: self.get_data(features),
-                         self.targets.name: self.get_data(targets)
-                     })
-            # TODO: if the log group is undecided or multiple,
-            # how could we define the parameters of the training function
-            # TODO: add some explanations for better understanding
-            # for every file writer, check all the input kwargs
-            # if the args name is the following api : writer name + _ + input tensor name
-            # then add the arg to the collection
-            # then run the file writer with the collection
-            # TODO: Does all the inputs of the log group has been defined? It should be checked
-            # loop through kwargs
-            # for all file writers, check it's name
-            for index, writer in enumerate(self.file_writers):
-                collection = {}
-                for key, value in kwargs.items():
-                    for tensor in writer['feed_dict']:
-                        if writer['name'] + '_' + tensor.name == key + ':0':
-                            collection[tensor.name] = self.get_data(value)
-                self.log(session=sess,
-                         step=i + 1,
-                         log_group=writer['name'],
-                         feed_dict=collection)
-
-            # for feed in saving strategy, if name in kwargs matches its name
-            saving_feeds = {}
-            for key, value in kwargs.items():
-                for feed in self.saving_strategy.feed_dict:
-                    if key + ':0' == 'saving' + '_' + feed.name:
-                        saving_feeds[feed.name] = self.get_data(value)
-            self.save(step=i,
-                      feed_dict=saving_feeds)
-
-        # if close session(default):
-        if close_session:
-            sess.close()
-
     def train(self,
               features,
               targets,
@@ -691,142 +566,6 @@ class Model:
             return inputs
 
 
-class RNNModel(Model):
-    """
-
-    """
-
-    def __init__(self, name):
-        Model.__init__(self, name=name)
-
-    @property
-    def state(self):
-        return self._state
-
-    @state.setter
-    def state(self, state):
-        self._state = self.get_tensor(state)
-
-    def train(self,
-              features,
-              targets,
-              cv_features,
-              cv_targets,
-              training_epochs,
-              cv_epochs,
-              learning_rate=0.001,
-              training_steps=100000,
-              optimizer=tf.train.AdamOptimizer,
-              close_session=True,
-              reuse_state=True,
-              **kwargs):
-        """
-
-        :param features:
-        :param targets:
-        :param learning_rate:
-        :param training_steps:
-        :param optimizer:
-        :param close_session:
-        :param reuse_state:
-        :return:
-        """
-        sess = tf.Session(graph=self.graph)
-        # define training ops
-        # global_step = tf.train.create_global_step(graph=sess.graph)
-        # decayed_learning_rate = tf.train.exponential_decay(learning_rate=learning_rate,
-        #                                                    global_step=global_step,
-        #                                                    decay_steps=1000,
-        #                                                    decay_rate=0.5)
-
-        optimizer_fn = optimizer(learning_rate=learning_rate)
-        # gradient_and_vars = optimizer_fn.compute_gradients(self.losses)
-        # i = 0
-        # for grad, var in gradient_and_vars:
-        #     self.log_histogram(str(i), grad, 'training')
-        #     i += 1
-        # capped_gvs = [
-        #     (tf.clip_by_norm(grad, clip_norm=1.0), var) for grad, var in gradient_and_vars]
-        # for grad, var in capped_gvs:
-        #     self.log_histogram(grad.name, grad, 'training')
-        train = optimizer_fn.minimize(self.losses)
-        # just a fancier version of tf.global_variables_initializer()
-        # get variable first
-        global_variables = self.graph.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
-        # create init op of global variables
-        init_global = tf.variables_initializer(global_variables)
-        local_variables = self.graph.get_collection(tf.GraphKeys.LOCAL_VARIABLES)
-        init_local = tf.variables_initializer(local_variables)
-        sess.run([init_global, init_local])
-
-        # create log op by calling finalized log
-        self.finalized_log()
-
-        # hook session for saver
-        self.hook_session(sess)
-
-        # add meta graph and variables
-        self.add_meta_graph_and_variables()
-
-        # training steps
-        for i in range(training_steps):
-            # if isinstance(feed_dict, types.GeneratorType):
-            #     features, targets = next(feed_dict)
-            # elif feed_dict is list or feed_dict is tuple:
-            #     # TODO: add sanity checks
-            #     features, targets = feed_dict
-            # else:
-            #     raise Exception('Training feed dict should be a generator, list or tuple.')
-            for i in range(training_epochs):
-                state =
-                if i == 0:
-
-                _, state = sess.run([train, self.state], feed_dict={
-                    self.features.name: self.get_data(features),
-                    self.targets.name: self.get_data(targets),
-                    'state': state
-                })
-
-            for i in range(cv_epochs):
-                _, state = sess.run([train, self.state], feed_dict={
-                    self.features.name: self.get_data(cv_features),
-                    self.targets.name: self.get_data(cv_targets)
-                })
-            # TODO: if the log group is undecided or multiple,
-            # how could we define the parameters of the training function
-            # TODO: add some explanations for better understanding
-            # for every file writer, check all the input kwargs
-            # if the args name is the following api : writer name + _ + input tensor name
-            # then add the arg to the collection
-            # then run the file writer with the collection
-            # TODO: Does all the inputs of the log group has been defined? It should be checked
-            # loop through kwargs
-            # for all file writers, check it's name
-            for index, writer in enumerate(self.file_writers):
-                collection = {}
-                for key, value in kwargs.items():
-                    for tensor in writer['feed_dict']:
-                        if writer['name'] + '_' + tensor.name == key + ':0':
-                            collection[tensor.name] = self.get_data(value)
-                self.log(session=sess,
-                         step=i + 1,
-                         log_group=writer['name'],
-                         feed_dict=collection)
-
-            # for feed in saving strategy, if name in kwargs matches its name
-            saving_feeds = {}
-            for key, value in kwargs.items():
-                for feed in self.saving_strategy.feed_dict:
-                    if key + ':0' == 'saving' + '_' + feed.name:
-                        saving_feeds[feed.name] = self.get_data(value)
-            self.save(step=i,
-                      feed_dict=saving_feeds)
-
-        # if close session(default):
-        if close_session:
-            sess.close()
-
-
 class SavingStrategy:
     """
 
@@ -867,6 +606,8 @@ class RnnModel(Model):
             folder = os.get_exec_path()
         Model.__init__(self, graph=graph, name=name, folder=folder)
         self._state = None
+        self._training_log_interval = 50
+        self._cv_log_interval = 50
 
     @property
     def state(self):
@@ -910,16 +651,16 @@ class RnnModel(Model):
                                                            decay_rate=0.5)
 
         optimizer_fn = optimizer(learning_rate=decayed_learning_rate)
-        gradient_and_vars = optimizer_fn.compute_gradients(self.losses)
-        i = 0
-        for grad, var in gradient_and_vars:
-            self.log_histogram(str(i), grad, 'training')
-            i += 1
-        capped_gvs = [
-            (tf.clip_by_norm(grad, clip_norm=1.0), var) for grad, var in gradient_and_vars]
-        for grad, var in capped_gvs:
-            self.log_histogram(grad.name, grad, 'training')
-        train = optimizer_fn.apply_gradients(grads_and_vars=capped_gvs)
+        # gradient_and_vars = optimizer_fn.compute_gradients(self.losses)
+        # i = 0
+        # for grad, var in gradient_and_vars:
+        #     self.log_histogram(str(i), grad, 'training')
+        #     i += 1
+        # capped_gvs = [
+        #     (tf.clip_by_norm(grad, clip_norm=1.0), var) for grad, var in gradient_and_vars]
+        # for grad, var in capped_gvs:
+        #     self.log_histogram(grad.name, grad, 'training')
+        train = optimizer_fn.minimize(self.losses)
         # just a fancier version of tf.global_variables_initializer()
         # get variable first
         global_variables = self.graph.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
@@ -938,9 +679,6 @@ class RnnModel(Model):
         # add meta graph and variables
         self.add_meta_graph_and_variables()
 
-        # get initial state
-        state = self.get_initial_state()
-
         # training steps
         for i in range(training_steps):
             # if isinstance(feed_dict, types.GeneratorType):
@@ -950,15 +688,23 @@ class RnnModel(Model):
             #     features, targets = feed_dict
             # else:
             #     raise Exception('Training feed dict should be a generator, list or tuple.')
+
+            # get initial state
+            state = self.get_initial_state()
+            average_training_loss = 0
+            average_cv_loss = 0
             for j in range(training_epochs):
-                _, state = sess.run([train, self.state], feed_dict={
+                _, state, training_loss = sess.run([train, self.state, self.losses], feed_dict={
                     self.features.name: self.get_data(features),
                     self.targets.name: self.get_data(targets),
                     self.state.name: state
                 })
+                average_training_loss += training_loss
 
-            for i in range(cv_epochs):
-                _, state = sess.run([train, self.state], feed_dict={
+            average_training_loss = average_training_loss / training_epochs
+
+            for h in range(cv_epochs):
+                _, state, loss = sess.run([train, self.state, self.losses], feed_dict={
                     self.features.name: self.get_data(cv_features),
                     self.targets.name: self.get_data(cv_targets),
                     self.state.name: state
@@ -1003,3 +749,14 @@ class RnnModel(Model):
         :return:
         """
         pass
+
+    def log_loss(self, training_interval=50, cv_interval=50, training_group_name='training', cv_group_name='cv'):
+        """
+        define log interval of training loss and cv loss
+        :param training_interval:
+        :param cv_interval:
+        :return:
+        """
+        self._training_log_interval = training_interval
+        self._cv_log_interval = cv_interval
+        self.create_log_group()
