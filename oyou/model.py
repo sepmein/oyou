@@ -253,6 +253,26 @@ class Model:
                                           name=writer['name'] + '_summaries')
             writer['summary_op'] = summary_op
 
+    def log_with_result(self, step, log_group, result):
+        """
+        log tensor
+        {
+            name,
+            writer: tf.summary.FileWriter,
+            record_interval,
+            summaries: ?,
+            ops: ?,
+            feed_dict
+        }
+        :param step:
+        :param log_group:
+        :param result:
+        :return:
+        """
+        for index, writer in enumerate(self.file_writers):
+            if step % writer['record_interval'] == 0 and writer['name'] is log_group:
+                writer['writer'].add_summary(summary=result, global_step=step)
+
     def log(self, session, step, log_group, feed_dict):
         """Log the predefined summaries on the run
 
@@ -753,10 +773,17 @@ class RnnModel(Model):
     def log_loss(self, training_interval=50, cv_interval=50, training_group_name='training', cv_group_name='cv'):
         """
         define log interval of training loss and cv loss
+        :param cv_group_name:
+        :param training_group_name:
         :param training_interval:
         :param cv_interval:
         :return:
         """
         self._training_log_interval = training_interval
         self._cv_log_interval = cv_interval
-        self.create_log_group()
+        self.create_log_group(name=training_group_name, record_interval=training_interval)
+        self.create_log_group(name=cv_group_name, record_interval=cv_interval)
+        training_loss_summary = tf.summary.scalar(name='training_loss', tensor=self.losses,
+                                                  collections=training_group_name)
+        cv_loss_summary = tf.summary.scalar(name='cv_losses', tensor=self.losses, collections=cv_group_name)
+        self._add_to_summary_writer()
