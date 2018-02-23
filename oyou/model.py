@@ -624,19 +624,11 @@ class RnnModel(Model):
         if graph is None:
             graph = tf.get_default_graph()
         if folder is None:
-            folder = os.get_exec_path()
+            folder = os.getcwd()
         Model.__init__(self, graph=graph, name=name, folder=folder)
-        self._state = None
+        self._states = None
         self._training_log_interval = 50
         self._cv_log_interval = 50
-
-    @property
-    def state(self):
-        return self._state
-
-    @state.setter
-    def state(self, state):
-        self._state = self.state
 
     @property
     def states(self):
@@ -644,8 +636,15 @@ class RnnModel(Model):
 
     @states.setter
     def states(self, states):
-        for state in states:
-            self._states.append(self.get_tensor())
+        self._states = self.get_tensor(states)
+
+    @property
+    def final_states(self):
+        return self._final_states
+
+    @final_states.setter
+    def final_states(self, final_states):
+        self._final_states = final_states
 
     def train(self,
               features,
@@ -720,24 +719,24 @@ class RnnModel(Model):
             #     raise Exception('Training feed dict should be a generator, list or tuple.')
 
             # get initial state
-            state = self.initial_state
+            states = sess.run(self.initial_state)
             average_training_loss = 0
             average_cv_loss = 0
             for j in range(training_epochs):
-                _, state, training_loss = sess.run([train, self.state, self.losses], feed_dict={
+                _, states, training_loss = sess.run([train, self.final_states, self.losses], feed_dict={
                     self.features.name: self.get_data(features),
                     self.targets.name: self.get_data(targets),
-                    self.state.name: state
+                    self.states.name: states
                 })
                 average_training_loss += training_loss
 
             average_training_loss = average_training_loss / training_epochs
 
             for h in range(cv_epochs):
-                _, state, cv_loss = sess.run([train, self.state, self.losses], feed_dict={
+                _, states, cv_loss = sess.run([train, self.final_states, self.losses], feed_dict={
                     self.features.name: self.get_data(cv_features),
                     self.targets.name: self.get_data(cv_targets),
-                    self.state.name: state
+                    self.states.name: states
                 })
                 average_cv_loss += cv_loss
 
