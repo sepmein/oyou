@@ -608,6 +608,7 @@ class SavingStrategy:
         self.top_model_list = [
             {'performance': None}
         ]
+        self._initial_state = None
 
     def pop(self):
         if len(self.top_model_list) >= self.max_to_keep:
@@ -635,7 +636,16 @@ class RnnModel(Model):
 
     @state.setter
     def state(self, state):
-        self._state = self.get_tensor(state)
+        self._state = self.state
+
+    @property
+    def states(self):
+        return self._states
+
+    @states.setter
+    def states(self, states):
+        for state in states:
+            self._states.append(self.get_tensor())
 
     def train(self,
               features,
@@ -710,7 +720,7 @@ class RnnModel(Model):
             #     raise Exception('Training feed dict should be a generator, list or tuple.')
 
             # get initial state
-            state = self.get_initial_state()
+            state = self.initial_state
             average_training_loss = 0
             average_cv_loss = 0
             for j in range(training_epochs):
@@ -724,11 +734,19 @@ class RnnModel(Model):
             average_training_loss = average_training_loss / training_epochs
 
             for h in range(cv_epochs):
-                _, state, loss = sess.run([train, self.state, self.losses], feed_dict={
+                _, state, cv_loss = sess.run([train, self.state, self.losses], feed_dict={
                     self.features.name: self.get_data(cv_features),
                     self.targets.name: self.get_data(cv_targets),
                     self.state.name: state
                 })
+                average_cv_loss += cv_loss
+
+            average_cv_loss = average_cv_loss / cv_epochs
+
+            print('training step: ', i)
+            print('training loss: ', average_training_loss)
+            print('cv loss: ', average_cv_loss)
+
             # TODO: if the log group is undecided or multiple,
             # how could we define the parameters of the training function
             # TODO: add some explanations for better understanding
@@ -751,24 +769,29 @@ class RnnModel(Model):
                          feed_dict=collection)
 
             # for feed in saving strategy, if name in kwargs matches its name
-            saving_feeds = {}
-            for key, value in kwargs.items():
-                for feed in self.saving_strategy.feed_dict:
-                    if key + ':0' == 'saving' + '_' + feed.name:
-                        saving_feeds[feed.name] = self.get_data(value)
-            self.save(step=i,
-                      feed_dict=saving_feeds)
+            # saving_feeds = {}
+            # for key, value in kwargs.items():
+            #     for feed in self.saving_strategy.feed_dict:
+            #         if key + ':0' == 'saving' + '_' + feed.name:
+            #             saving_feeds[feed.name] = self.get_data(value)
+            # self.save(step=i,
+            #           feed_dict=saving_feeds)
 
         # if close session(default):
         if close_session:
             sess.close()
 
-    def get_initial_state(self):
+    @property
+    def initial_state(self):
+        return self._initial_state
+
+    @initial_state.setter
+    def initial_state(self, initial_state):
         """
         get initial state for input to training function
         :return:
         """
-        pass
+        self._initial_state = initial_state
 
     def log_loss(self, training_interval=50, cv_interval=50, training_group_name='training', cv_group_name='cv'):
         """
@@ -786,4 +809,4 @@ class RnnModel(Model):
         training_loss_summary = tf.summary.scalar(name='training_loss', tensor=self.losses,
                                                   collections=training_group_name)
         cv_loss_summary = tf.summary.scalar(name='cv_losses', tensor=self.losses, collections=cv_group_name)
-        self._add_to_summary_writer()
+        # self._add_to_summary_writer()
