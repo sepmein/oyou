@@ -34,7 +34,7 @@ setup(name='oyou',
       packages=['oyou'],
       zip_safe=False,
       install_requires=[
-          'tensorflow',
+          'tensorflow-gpu',
           'numpy'
       ],
       test_suite='nose.collector',

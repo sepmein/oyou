@@ -619,7 +619,8 @@ class RnnModel(Model):
     def __init__(self,
                  graph=None,
                  name=None,
-                 folder=None
+                 folder=None,
+                 log_interval=50
                  ):
         if graph is None:
             graph = tf.get_default_graph()
@@ -627,8 +628,8 @@ class RnnModel(Model):
             folder = os.getcwd()
         Model.__init__(self, graph=graph, name=name, folder=folder)
         self._states = None
-        self._training_log_interval = 50
-        self._cv_log_interval = 50
+        self._final_states = None
+        self.log_interval = 50
 
     @property
     def states(self):
@@ -645,6 +646,32 @@ class RnnModel(Model):
     @final_states.setter
     def final_states(self, final_states):
         self._final_states = final_states
+
+    def _get_training_tensor_to_run(self, train, step):
+        """
+        build running tensor for session.run
+        summary structure
+        {
+            interval:
+            tensor:
+            group
+        }
+        :return:
+        """
+        to_run = [train]
+        if self._summaries is not None:
+            for summary in self._summaries:
+                if step % summary['interval']:
+                    to_run.append(summary['tensor'])
+        if step % self.saving_strategy.interval:
+            to_run.append(self.saving_strategy.indicator_tensor)
+        return to_run
+
+    def _get_cv_tensor_to_run(self, step):
+        pass
+
+    def log(self, tensor, interval, output_fn):
+        pass
 
     def train(self,
               features,
@@ -698,6 +725,7 @@ class RnnModel(Model):
         local_variables = self.graph.get_collection(tf.GraphKeys.LOCAL_VARIABLES)
         init_local = tf.variables_initializer(local_variables)
         sess.run([init_global, init_local])
+        self.create_log_group('training', record_interval=self.log_interval, )
 
         # create log op by calling finalized log
         self.finalized_log()
@@ -733,7 +761,7 @@ class RnnModel(Model):
             average_training_loss = average_training_loss / training_epochs
 
             for h in range(cv_epochs):
-                _, states, cv_loss = sess.run([train, self.final_states, self.losses], feed_dict={
+                states, cv_loss = sess.run([self.final_states, self.losses], feed_dict={
                     self.features.name: self.get_data(cv_features),
                     self.targets.name: self.get_data(cv_targets),
                     self.states.name: states
