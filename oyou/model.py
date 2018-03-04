@@ -670,8 +670,8 @@ class RnnModel(Model):
     def _get_cv_tensor_to_run(self, step):
         pass
 
-    def log(self, tensor, interval, output_fn):
-        pass
+    # def log(self, tensor, interval, output_fn):
+    #     pass
 
     def train(self,
               features,
@@ -728,7 +728,7 @@ class RnnModel(Model):
         self.create_log_group('training', record_interval=self.log_interval, )
 
         # create log op by calling finalized log
-        self.finalized_log()
+        # self.finalized_log()
 
         # hook session for saver
         self.hook_session(sess)
