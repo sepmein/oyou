@@ -177,7 +177,6 @@ class Model:
         self.train will check the **kwargs in order to match those names
         :return:
         """
-        # TODO: add feed_dict placeholder to the log group
         _existed = False
         for writer in self.file_writers:
             if writer['name'] is name:
@@ -187,9 +186,9 @@ class Model:
         if feed_tensors is None:
             feed_tensors = [self.features, self.targets]
         # sanitary check the feed tensor
-        for tensor in feed_tensors:
-            if not isinstance(tensor, tf.Tensor):
-                raise Exception('feed tensor of the file writer should be tf.tensor')
+        # for tensor in feed_tensors:
+        #     if not isinstance(tensor, tf.Tensor):
+        #         raise Exception('feed tensor of the file writer should be tf.tensor')
 
         if not _existed:
             self.file_writers.append({
@@ -427,7 +426,6 @@ class Model:
             # compare it to the current best model
             # if performance is better, add it to the current best model list
             # and save it on the disk
-            # TODO: how to decide performance is better? should use greater? or miner? how to predefine this
             # particular information in the saving strategy.
             for index, model in enumerate(self.saving_strategy.top_model_list):
                 if self.saving_strategy.compare_fn(performance, model['performance']):
@@ -754,15 +752,6 @@ class RnnModel(Model):
                                                            decay_rate=0.5)
 
         optimizer_fn = optimizer(learning_rate=decayed_learning_rate)
-        # gradient_and_vars = optimizer_fn.compute_gradients(self.losses)
-        # i = 0
-        # for grad, var in gradient_and_vars:
-        #     self.log_histogram(str(i), grad, 'training')
-        #     i += 1
-        # capped_gvs = [
-        #     (tf.clip_by_norm(grad, clip_norm=1.0), var) for grad, var in gradient_and_vars]
-        # for grad, var in capped_gvs:
-        #     self.log_histogram(grad.name, grad, 'training')
         train = optimizer_fn.minimize(self.losses)
         # just a fancier version of tf.global_variables_initializer()
         # get variable first
@@ -772,10 +761,9 @@ class RnnModel(Model):
         local_variables = self.graph.get_collection(tf.GraphKeys.LOCAL_VARIABLES)
         init_local = tf.variables_initializer(local_variables)
         sess.run([init_global, init_local])
-        self.create_log_group('training', record_interval=self.log_interval, )
 
         # create log op by calling finalized log
-        # self.finalized_log()
+        self.finalized_log()
 
         # hook session for saver
         self.hook_session(sess)
@@ -795,29 +783,21 @@ class RnnModel(Model):
         should_log_save = False
         one_randomly_picked_int_from_j_training_epochs = 0
         one_randomly_picked_int_from_k_cv_epochs = 0
+
+        # build running tensor
+        training_tensor = [train, self.final_states]
+        training_tensor_with_log = [train, self.final_states, training_writer['summary_op']]
+        cv_tensor = self.final_states
+        cv_tensor_with_log_save = [self.final_states, cv_writer['summary_op'], self.saving_strategy.indicator_tensor]
+
         # training steps
         for i in range(training_steps):
-            # if isinstance(feed_dict, types.GeneratorType):
-            #     features, targets = next(feed_dict)
-            # elif feed_dict is list or feed_dict is tuple:
-            #     # TODO: add sanity checks
-            #     features, targets = feed_dict
-            # else:
-            #     raise Exception('Training feed dict should be a generator, list or tuple.')
-
             # get initial state
             states = sess.run(self.initial_state)
-            average_training_loss = 0
-            average_cv_loss = 0
 
-            # build running tensor
-            training_tensor = [train, self.final_states]
-            training_tensor_with_log = [train, self.final_states, training_writer['summaries']]
-            cv_tensor = [self.final_states]
-            cv_tensor_with_log_save = [self.final_states, cv_writer['summaries'], self.saving_strategy.indicator_tensor]
-
+            print(i)
             # randomly pick one of j to log and save the model
-            if i % self._log_save_interval:
+            if ((i + 1) % self._log_save_interval) == 0:
                 should_log_save = True
                 one_randomly_picked_int_from_j_training_epochs = randint(0, training_epochs)
                 one_randomly_picked_int_from_k_cv_epochs = randint(0, cv_epochs)
@@ -875,24 +855,6 @@ class RnnModel(Model):
         if close_session:
             sess.close()
 
-    def log_loss(self, training_interval=50, cv_interval=50, training_group_name='training', cv_group_name='cv'):
-        """
-        define log interval of training loss and cv loss
-        :param cv_group_name:
-        :param training_group_name:
-        :param training_interval:
-        :param cv_interval:
-        :return:
-        """
-        self._training_log_interval = training_interval
-        self._cv_log_interval = cv_interval
-        self.create_log_group(name=training_group_name, record_interval=training_interval)
-        self.create_log_group(name=cv_group_name, record_interval=cv_interval)
-        training_loss_summary = tf.summary.scalar(name='training_loss', tensor=self.losses,
-                                                  collections=training_group_name)
-        cv_loss_summary = tf.summary.scalar(name='cv_losses', tensor=self.losses, collections=cv_group_name)
-        # self._add_to_summary_writer()
-
     def save(self, step, performance):
         if self.saving_strategy is None:
             raise Exception('Should define saving strategy before saving.')
@@ -911,3 +873,20 @@ class RnnModel(Model):
                         })
                     self.savers[index].save()
                     break
+
+    def define_saving_strategy(self,
+                               indicator_tensor,
+                               max_to_keep,
+                               compare_fn=_default_compare_fn_for_saving_strategy,
+                               ):
+        self.saving_strategy = SavingStrategy(
+            indicator_tensor=indicator_tensor,
+            interval=self._log_save_interval,
+            feed_dict=None,
+            max_to_keep=max_to_keep,
+            compare_fn=compare_fn
+        )
+        self.savers = [
+            tf.saved_model.builder.SavedModelBuilder(export_dir=self.model_folder + '/' + str(_))
+            for _ in range(max_to_keep)
+        ]
