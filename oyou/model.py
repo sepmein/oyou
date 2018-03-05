@@ -3,6 +3,7 @@
 Define Model for building tensorflow object
 """
 import os
+from random import randint
 from types import GeneratorType
 
 import tensorflow as tf
@@ -383,9 +384,9 @@ class Model:
     def define_saving_strategy(self,
                                indicator_tensor,
                                interval,
-                               feed_dict,
                                max_to_keep,
-                               compare_fn=_default_compare_fn_for_saving_strategy
+                               compare_fn=_default_compare_fn_for_saving_strategy,
+                               feed_dict=None
                                ):
         """
         Before defining saving strategy, model.saving_indicator should be set.
@@ -629,7 +630,9 @@ class RnnModel(Model):
         Model.__init__(self, graph=graph, name=name, folder=folder)
         self._states = None
         self._final_states = None
-        self.log_interval = 50
+        self._log_save_interval = 50
+        self.create_log_group(name='training', record_interval=self._log_save_interval)
+        self.create_log_group(name='cv', record_interval=self._log_save_interval)
 
     @property
     def states(self):
@@ -646,6 +649,50 @@ class RnnModel(Model):
     @final_states.setter
     def final_states(self, final_states):
         self._final_states = final_states
+
+    @property
+    def initial_state(self):
+        return self._initial_state
+
+    @initial_state.setter
+    def initial_state(self, initial_state):
+        """
+        get initial state for input to training function
+        :return:
+        """
+        self._initial_state = initial_state
+
+    @property
+    def log_interval(self):
+        return self._log_save_interval
+
+    @log_interval.setter
+    def log_interval(self, interval):
+        self._log_save_interval = interval
+
+    def log_scalar_to_training_group(self, name, tensor, op=None):
+        self.log_scalar(name=name,
+                        tensor=tensor,
+                        group='training',
+                        op=None)
+
+    def log_histogram_to_training_group(self, name, tensor, op=None):
+        self.log_histogram(name=name,
+                           tensor=tensor,
+                           group='training',
+                           op=None)
+
+    def log_scalar_to_cv_group(self, name, tensor, op=None):
+        self.log_scalar(name=name,
+                        tensor=tensor,
+                        group='cv',
+                        op=None)
+
+    def log_histogram_to_cv_group(self, name, tensor, op=None):
+        self.log_histogram(name=name,
+                           tensor=tensor,
+                           group='cv',
+                           op=None)
 
     def _get_training_tensor_to_run(self, train, step):
         """
@@ -736,6 +783,18 @@ class RnnModel(Model):
         # add meta graph and variables
         self.add_meta_graph_and_variables()
 
+        # get summary writer
+        training_writer = None
+        cv_writer = None
+        for writer in self.file_writers:
+            if writer['name'] is 'training':
+                training_writer = writer
+            elif writer['name'] is 'cv':
+                cv_writer = writer
+
+        should_log_save = False
+        one_randomly_picked_int_from_j_training_epochs = 0
+        one_randomly_picked_int_from_k_cv_epochs = 0
         # training steps
         for i in range(training_steps):
             # if isinstance(feed_dict, types.GeneratorType):
@@ -750,75 +809,71 @@ class RnnModel(Model):
             states = sess.run(self.initial_state)
             average_training_loss = 0
             average_cv_loss = 0
-            for j in range(training_epochs):
-                _, states, training_loss = sess.run([train, self.final_states, self.losses], feed_dict={
-                    self.features.name: self.get_data(features),
-                    self.targets.name: self.get_data(targets),
-                    self.states.name: states
-                })
-                average_training_loss += training_loss
 
-            average_training_loss = average_training_loss / training_epochs
+            # build running tensor
+            training_tensor = [train, self.final_states]
+            training_tensor_with_log = [train, self.final_states, training_writer['summaries']]
+            cv_tensor = [self.final_states]
+            cv_tensor_with_log_save = [self.final_states, cv_writer['summaries'], self.saving_strategy.indicator_tensor]
 
-            for h in range(cv_epochs):
-                states, cv_loss = sess.run([self.final_states, self.losses], feed_dict={
-                    self.features.name: self.get_data(cv_features),
-                    self.targets.name: self.get_data(cv_targets),
-                    self.states.name: states
-                })
-                average_cv_loss += cv_loss
+            # randomly pick one of j to log and save the model
+            if i % self._log_save_interval:
+                should_log_save = True
+                one_randomly_picked_int_from_j_training_epochs = randint(0, training_epochs)
+                one_randomly_picked_int_from_k_cv_epochs = randint(0, cv_epochs)
+            else:
+                should_log_save = False
 
-            average_cv_loss = average_cv_loss / cv_epochs
-
-            print('training step: ', i)
-            print('training loss: ', average_training_loss)
-            print('cv loss: ', average_cv_loss)
-
-            # TODO: if the log group is undecided or multiple,
-            # how could we define the parameters of the training function
-            # TODO: add some explanations for better understanding
-            # for every file writer, check all the input kwargs
-            # if the args name is the following api : writer name + _ + input tensor name
-            # then add the arg to the collection
-            # then run the file writer with the collection
-            # TODO: Does all the inputs of the log group has been defined? It should be checked
-            # loop through kwargs
-            # for all file writers, check it's name
-            for index, writer in enumerate(self.file_writers):
-                collection = {}
-                for key, value in kwargs.items():
-                    for tensor in writer['feed_dict']:
-                        if writer['name'] + '_' + tensor.name == key + ':0':
-                            collection[tensor.name] = self.get_data(value)
-                self.log(session=sess,
-                         step=i + 1,
-                         log_group=writer['name'],
-                         feed_dict=collection)
-
-            # for feed in saving strategy, if name in kwargs matches its name
-            # saving_feeds = {}
-            # for key, value in kwargs.items():
-            #     for feed in self.saving_strategy.feed_dict:
-            #         if key + ':0' == 'saving' + '_' + feed.name:
-            #             saving_feeds[feed.name] = self.get_data(value)
-            # self.save(step=i,
-            #           feed_dict=saving_feeds)
-
+            if not should_log_save:
+                for l in range(training_epochs):
+                    _, states = sess.run(training_tensor,
+                                         feed_dict={
+                                             self.features.name: self.get_data(features),
+                                             self.targets.name: self.get_data(targets),
+                                             self.states.name: states
+                                         })
+            if should_log_save:
+                for j in range(training_epochs):
+                    if j is not one_randomly_picked_int_from_j_training_epochs:
+                        _, states = sess.run(training_tensor,
+                                             feed_dict={
+                                                 self.features.name: self.get_data(features),
+                                                 self.targets.name: self.get_data(targets),
+                                                 self.states.name: states
+                                             })
+                    else:
+                        _, states, training_summary = sess.run(training_tensor_with_log,
+                                                               feed_dict={
+                                                                   self.features.name: self.get_data(features),
+                                                                   self.targets.name: self.get_data(targets),
+                                                                   self.states.name: states
+                                                               })
+                        # TODO add summary to training summary
+                        training_writer['writer'].add_summary(summary=training_summary, global_step=i)
+                for k in range(cv_epochs):
+                    if k is not one_randomly_picked_int_from_k_cv_epochs:
+                        states = sess.run(cv_tensor,
+                                          feed_dict={
+                                              self.features.name: self.get_data(cv_features),
+                                              self.targets.name: self.get_data(cv_targets),
+                                              self.states.name: states
+                                          })
+                    else:
+                        states, cv_summary, saving_indicator_result = sess.run(cv_tensor_with_log_save,
+                                                                               feed_dict={
+                                                                                   self.features.name: self.get_data(
+                                                                                       cv_features),
+                                                                                   self.targets.name: self.get_data(
+                                                                                       cv_targets),
+                                                                                   self.states.name: states
+                                                                               })
+                        # TODO: add summary to cv summary
+                        cv_writer['writer'].add_summary(summary=cv_summary, global_step=i)
+                        # TODO: running saving strategy
+                        self.save(step=i, performance=saving_indicator_result)
         # if close session(default):
         if close_session:
             sess.close()
-
-    @property
-    def initial_state(self):
-        return self._initial_state
-
-    @initial_state.setter
-    def initial_state(self, initial_state):
-        """
-        get initial state for input to training function
-        :return:
-        """
-        self._initial_state = initial_state
 
     def log_loss(self, training_interval=50, cv_interval=50, training_group_name='training', cv_group_name='cv'):
         """
@@ -837,3 +892,22 @@ class RnnModel(Model):
                                                   collections=training_group_name)
         cv_loss_summary = tf.summary.scalar(name='cv_losses', tensor=self.losses, collections=cv_group_name)
         # self._add_to_summary_writer()
+
+    def save(self, step, performance):
+        if self.saving_strategy is None:
+            raise Exception('Should define saving strategy before saving.')
+        if step % self.saving_strategy.interval == 0:
+            # compare it to the current best model
+            # if performance is better, add it to the current best model list
+            # and save it on the disk
+            # particular information in the saving strategy.
+            for index, model in enumerate(self.saving_strategy.top_model_list):
+                if self.saving_strategy.compare_fn(performance, model['performance']):
+                    self.saving_strategy.top_model_list.insert(
+                        index,
+                        {
+                            'performance': performance,
+                            'step': step
+                        })
+                    self.savers[index].save()
+                    break
