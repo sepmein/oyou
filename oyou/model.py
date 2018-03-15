@@ -2,8 +2,10 @@
 """
 Define Model for building tensorflow object
 """
-import os
+from os import getcwd
+from os.path import isdir
 from random import randint
+from shutil import rmtree
 from types import GeneratorType
 
 import tensorflow as tf
@@ -29,7 +31,7 @@ class Model:
     def __init__(self,
                  graph=tf.get_default_graph(),
                  name=None,
-                 folder=os.getcwd()
+                 folder=getcwd()
                  ):
         """
         Init a model object
@@ -58,6 +60,8 @@ class Model:
         self.savers = []
         # TODO: define default saving strategy
         self.saving_strategy = None
+        self.signature_definition_map = None
+        self.tags = None
 
     @property
     def name(self):
@@ -302,14 +306,11 @@ class Model:
         """
         self.session = session
 
-    def add_meta_graph_and_variables(self):
+    def build_meta_graph_and_variables(self):
         """
-        add meta graph and variables to saver
+        Build meta graph and variables, output a signature definition map
         :return:
         """
-        if not self.session:
-            raise Exception('call hook session first')
-        tags = [tf.saved_model.tag_constants.SERVING]
         # dependencies: start
         input_key = 'input'
         output_key = 'output'
@@ -321,13 +322,33 @@ class Model:
             inputs={input_key: input_item},
             outputs={output_key: output_item}
         )
-        signature_definition_map = {
+        self.signature_definition_map = {
             signature_key: signature_definition
         }
-        for saver in self.savers:
+        self.tags = [tf.saved_model.tag_constants.SERVING]
+
+    def add_meta_graph_and_variables(self, saver_index):
+        """
+        add meta graph and variables to saver
+        :arg saver
+        :return:
+        """
+        if not self.session:
+            raise Exception('call hook session first')
+
+        if self.signature_definition_map is None:
+            self.build_meta_graph_and_variables()
+
+        # check if the model has been saved before
+        variable_path = self.model_folder + '/' + str(saver_index) + '/variables'
+        saver = self.savers[saver_index]
+        if isdir(variable_path):
+            saver.add_meta_graph(tags=self.tags,
+                                 signature_def_map=self.signature_definition_map)
+        else:
             saver.add_meta_graph_and_variables(sess=self.session,
-                                               tags=tags,
-                                               signature_def_map=signature_definition_map)
+                                               tags=self.tags,
+                                               signature_def_map=self.signature_definition_map)
 
     @classmethod
     def load(cls, path):
@@ -439,7 +460,7 @@ class Model:
                     break
 
             # remove the first item of the top list
-            self.saving_strategy.pop()
+            self.saving_strategy.top_model_list.pop()
 
             # TODO: delete previous saved model, check python os fs delete api
 
@@ -624,7 +645,7 @@ class RnnModel(Model):
         if graph is None:
             graph = tf.get_default_graph()
         if folder is None:
-            folder = os.getcwd()
+            folder = getcwd()
         Model.__init__(self, graph=graph, name=name, folder=folder)
         self._states = None
         self._final_states = None
@@ -768,9 +789,6 @@ class RnnModel(Model):
         # hook session for saver
         self.hook_session(sess)
 
-        # add meta graph and variables
-        self.add_meta_graph_and_variables()
-
         # get summary writer
         training_writer = None
         cv_writer = None
@@ -849,8 +867,10 @@ class RnnModel(Model):
                                                                                })
                         # TODO: add summary to cv summary
                         cv_writer['writer'].add_summary(summary=cv_summary, global_step=i)
+
                         # TODO: running saving strategy
                         self.save(step=i, performance=saving_indicator_result)
+
         # if close session(default):
         if close_session:
             sess.close()
@@ -864,14 +884,46 @@ class RnnModel(Model):
             # and save it on the disk
             # particular information in the saving strategy.
             for index, model in enumerate(self.saving_strategy.top_model_list):
-                if self.saving_strategy.compare_fn(performance, model['performance']):
+                # remove the last item of the top list
+                if len(self.saving_strategy.top_model_list) >= 10:
+                    self.saving_strategy.top_model_list.pop()
+                better_performance = self.saving_strategy.compare_fn(performance, model['performance'])
+                if better_performance:
+
+                    # update top model list
                     self.saving_strategy.top_model_list.insert(
                         index,
                         {
                             'performance': performance,
                             'step': step
                         })
-                    self.savers[index].save()
+
+                    # remove saved path
+                    # 1. check path is existed
+                    path = self.model_folder + '/' + str(index)
+                    if isdir(path):
+                        rmtree(path)
+
+                    # save model
+                    # 2. build a new saved_model saver
+                    saver = tf.saved_model.builder.SavedModelBuilder(export_dir=path)
+                    # TODO: remove self.savers, useless
+
+                    # 3. get meta graph and variables
+                    if self.signature_definition_map is None:
+                        self.build_meta_graph_and_variables()
+
+                    # 4. save model
+                    saver.add_meta_graph_and_variables(
+                        sess=self.session,
+                        tags=self.tags,
+                        signature_def_map=self.signature_definition_map
+                    )
+                    saver.save()
+
+                    ## for debugging
+                    print(self.saving_strategy.top_model_list)
+
                     break
 
     def define_saving_strategy(self,
@@ -886,7 +938,3 @@ class RnnModel(Model):
             max_to_keep=max_to_keep,
             compare_fn=compare_fn
         )
-        self.savers = [
-            tf.saved_model.builder.SavedModelBuilder(export_dir=self.model_folder + '/' + str(_))
-            for _ in range(max_to_keep)
-        ]
