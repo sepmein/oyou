@@ -597,7 +597,6 @@ class Model:
 
     @staticmethod
     def get_data(inputs):
-
         if callable(inputs):
             return inputs()
         elif isinstance(inputs, GeneratorType):
@@ -682,11 +681,11 @@ class RnnModel(Model):
         self._initial_state = initial_state
 
     @property
-    def log_interval(self):
+    def log_save_interval(self):
         return self._log_save_interval
 
-    @log_interval.setter
-    def log_interval(self, interval):
+    @log_save_interval.setter
+    def log_save_interval(self, interval):
         self._log_save_interval = interval
 
     def log_scalar_to_training_group(self, name, tensor, op=None):
@@ -937,3 +936,120 @@ class RnnModel(Model):
             max_to_keep=max_to_keep,
             compare_fn=compare_fn
         )
+
+    def predict(self,
+                features,
+                predict_features,
+                epochs,
+                predict_epochs
+                ):
+        # fixme: get initial state
+        # todo: saving initial state in the signature map
+        # todo: run the state using the procedures that runs the training
+        with self.session as sess:
+            initial_state = sess.run(self.initial_state)
+            states = None
+            for l in range(epochs):
+                if l is 0:
+                    states = sess.run(self.final_states,
+                                      feed_dict={
+                                          self.features.name: self.get_data(features),
+                                          self.states.name: initial_state
+                                      })
+                else:
+                    states = sess.run(self.final_states,
+                                      feed_dict={
+                                          self.features.name: self.get_data(features),
+                                          self.states.name: states
+                                      })
+            for k in range(predict_epochs):
+                prediction, states = sess.run([self.prediction, self.final_states],
+                                              feed_dict={
+                                                  self.features.name: self.get_data(predict_features),
+                                                  self.states.name: states
+                                              })
+                print(prediction)
+
+    @classmethod
+    def load(cls, path):
+        """
+        Load the saved model
+        :return:
+        """
+        tf.reset_default_graph()
+        session = tf.Session()
+        # dependencies re-injection
+        # TODO, concat this part with self.add_meta_graph_variables part
+        signature_key = tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
+        input_key = 'input'
+        initial_state_key = 'initial_state'
+        final_states_key = 'final_states'
+        state_key = 'state'
+        output_key = 'output'
+        tags = [tf.saved_model.tag_constants.SERVING]
+
+        # load meta graph
+        meta_graph_definition = tf.saved_model.loader.load(
+            sess=session,
+            tags=tags,
+            export_dir=path
+        )
+
+        # get signature_definition_map
+        signature_definition_map = meta_graph_definition.signature_def
+        target_signature = signature_definition_map[signature_key]
+
+        # load features_signature, get feature name and targets name
+        features_name = target_signature.inputs[input_key].name
+        initial_state_name = target_signature.inputs[initial_state_key].name
+        final_states_name = target_signature.inputs[final_states_key].name
+        state_name = target_signature.inputs[state_key].name
+        targets_name = target_signature.outputs[output_key].name
+
+        # get features in the graph by name
+        features = session.graph.get_tensor_by_name(features_name)
+        initial_state = session.graph.get_tensor_by_name(initial_state_name)
+        final_states = session.graph.get_tensor_by_name(final_states_name)
+        state = session.graph.get_tensor_by_name(state_name)
+        targets = session.graph.get_tensor_by_name(targets_name)
+
+        # TODO: How to get name?
+        model = cls(graph=session.graph, folder=path)
+        model.features = features
+        model.initial_state = initial_state
+        model.final_states = final_states
+        model.state = state
+        model.prediction = targets
+        model.session = session
+        return model
+
+    def build_meta_graph_and_variables(self):
+        """
+                Build meta graph and variables, output a signature definition map
+                :return:
+                """
+        # dependencies: start
+        input_key = 'input'
+        initial_state_key = 'initial_state'
+        final_states_key = 'final_states'
+        state_key = 'state'
+        output_key = 'output'
+        input_item = self.features
+        initial_state_item = self.initial_state
+        final_states_item = self.final_states
+        state_item = self.states
+        output_item = self.prediction
+        signature_key = tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
+        # end
+        signature_definition = tf.saved_model.signature_def_utils.predict_signature_def(
+            inputs={input_key: input_item,
+                    initial_state_key: initial_state_item,
+                    state_key: state_item,
+                    final_states_key: final_states_item
+                    },
+            outputs={output_key: output_item}
+        )
+        self.signature_definition_map = {
+            signature_key: signature_definition
+        }
+        self.tags = [tf.saved_model.tag_constants.SERVING]
