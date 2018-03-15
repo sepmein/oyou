@@ -878,53 +878,52 @@ class RnnModel(Model):
     def save(self, step, performance):
         if self.saving_strategy is None:
             raise Exception('Should define saving strategy before saving.')
-        if step % self.saving_strategy.interval == 0:
-            # compare it to the current best model
-            # if performance is better, add it to the current best model list
-            # and save it on the disk
-            # particular information in the saving strategy.
-            for index, model in enumerate(self.saving_strategy.top_model_list):
-                # remove the last item of the top list
-                if len(self.saving_strategy.top_model_list) >= 10:
-                    self.saving_strategy.top_model_list.pop()
-                better_performance = self.saving_strategy.compare_fn(performance, model['performance'])
-                if better_performance:
+        # compare it to the current best model
+        # if performance is better, add it to the current best model list
+        # and save it on the disk
+        # particular information in the saving strategy.
+        for index, model in enumerate(self.saving_strategy.top_model_list):
+            # remove the last item of the top list
+            if len(self.saving_strategy.top_model_list) >= 10:
+                self.saving_strategy.top_model_list.pop()
+            better_performance = self.saving_strategy.compare_fn(performance, model['performance'])
 
-                    # update top model list
-                    self.saving_strategy.top_model_list.insert(
-                        index,
-                        {
-                            'performance': performance,
-                            'step': step
-                        })
+            if better_performance:
+                # update top model list
+                self.saving_strategy.top_model_list.insert(
+                    index,
+                    {
+                        'performance': performance,
+                        'step': step
+                    })
 
-                    # remove saved path
-                    # 1. check path is existed
-                    path = self.model_folder + '/' + str(index)
-                    if isdir(path):
-                        rmtree(path)
+                # remove saved path
+                # 1. check path is existed
+                path = self.model_folder + '/' + str(index)
+                if isdir(path):
+                    rmtree(path)
 
-                    # save model
-                    # 2. build a new saved_model saver
-                    saver = tf.saved_model.builder.SavedModelBuilder(export_dir=path)
-                    # TODO: remove self.savers, useless
+                # save model
+                # 2. build a new saved_model saver
+                saver = tf.saved_model.builder.SavedModelBuilder(export_dir=path)
+                # TODO: remove self.savers, useless
 
-                    # 3. get meta graph and variables
-                    if self.signature_definition_map is None:
-                        self.build_meta_graph_and_variables()
+                # 3. get meta graph and variables
+                if self.signature_definition_map is None:
+                    self.build_meta_graph_and_variables()
 
-                    # 4. save model
-                    saver.add_meta_graph_and_variables(
-                        sess=self.session,
-                        tags=self.tags,
-                        signature_def_map=self.signature_definition_map
-                    )
-                    saver.save()
+                # 4. save model
+                saver.add_meta_graph_and_variables(
+                    sess=self.session,
+                    tags=self.tags,
+                    signature_def_map=self.signature_definition_map
+                )
+                saver.save()
 
-                    ## for debugging
-                    print(self.saving_strategy.top_model_list)
+                ## for debugging
+                print(self.saving_strategy.top_model_list)
 
-                    break
+                break
 
     def define_saving_strategy(self,
                                indicator_tensor,
