@@ -984,7 +984,7 @@ class RnnModel(Model):
         input_key = 'input'
         initial_state_key = 'initial_state'
         final_states_key = 'final_states'
-        state_key = 'state'
+        states_key = 'state'
         output_key = 'output'
         tags = [tf.saved_model.tag_constants.SERVING]
 
@@ -1003,22 +1003,22 @@ class RnnModel(Model):
         features_name = target_signature.inputs[input_key].name
         initial_state_name = target_signature.inputs[initial_state_key].name
         final_states_name = target_signature.inputs[final_states_key].name
-        state_name = target_signature.inputs[state_key].name
+        states_name = target_signature.inputs[states_key].name
         targets_name = target_signature.outputs[output_key].name
 
         # get features in the graph by name
         features = session.graph.get_tensor_by_name(features_name)
         initial_state = session.graph.get_tensor_by_name(initial_state_name)
         final_states = session.graph.get_tensor_by_name(final_states_name)
-        state = session.graph.get_tensor_by_name(state_name)
+        states = session.graph.get_tensor_by_name(states_name)
         targets = session.graph.get_tensor_by_name(targets_name)
 
         # TODO: How to get name?
         model = cls(graph=session.graph, folder=path)
         model.features = features
-        model.initial_state = initial_state
-        model.final_states = final_states
-        model.state = state
+        model.initial_state = tuple(tf.unstack(initial_state))
+        model.final_states = tuple(tf.unstack(final_states))
+        model.states = states
         model.prediction = targets
         model.session = session
         return model
@@ -1035,18 +1035,19 @@ class RnnModel(Model):
         state_key = 'state'
         output_key = 'output'
         input_item = self.features
-        initial_state_item = self.initial_state
-        final_states_item = self.final_states
+        initial_state_item = tf.stack(self.initial_state)
+        final_states_item = tf.stack(self.final_states)
         state_item = self.states
         output_item = self.prediction
         signature_key = tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
         # end
         signature_definition = tf.saved_model.signature_def_utils.predict_signature_def(
-            inputs={input_key: input_item,
-                    initial_state_key: initial_state_item,
-                    state_key: state_item,
-                    final_states_key: final_states_item
-                    },
+            inputs={
+                input_key: input_item,
+                initial_state_key: initial_state_item,
+                state_key: state_item,
+                final_states_key: final_states_item
+            },
             outputs={output_key: output_item}
         )
         self.signature_definition_map = {
