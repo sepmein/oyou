@@ -812,7 +812,7 @@ class RnnModel(Model):
             # get initial state
             states = sess.run(self.initial_state)
 
-            print(i)
+            # print(i)
             # randomly pick one of j to log and save the model
             if ((i + 1) % self._log_save_interval) == 0:
                 should_log_save = True
@@ -920,6 +920,7 @@ class RnnModel(Model):
                 saver.save()
 
                 ## for debugging
+                print('Step: ', step)
                 print(self.saving_strategy.top_model_list)
 
                 break
