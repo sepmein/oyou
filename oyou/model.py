@@ -13,6 +13,12 @@ from numpy import ndarray
 
 
 def _default_compare_fn_for_saving_strategy(a, b):
+    """
+
+    :param a:
+    :param b:
+    :return:
+    """
     if b is None:
         return True
     if a is None:
@@ -769,7 +775,7 @@ class RnnModel(Model):
         decayed_learning_rate = tf.train.exponential_decay(learning_rate=learning_rate,
                                                            global_step=global_step,
                                                            decay_steps=1000,
-                                                           decay_rate=0.5)
+                                                           decay_rate=0.9)
 
         optimizer_fn = optimizer(learning_rate=decayed_learning_rate)
         train = optimizer_fn.minimize(self.losses)
@@ -805,7 +811,8 @@ class RnnModel(Model):
         training_tensor = [train, self.final_states]
         training_tensor_with_log = [train, self.final_states, training_writer['summary_op']]
         cv_tensor = self.final_states
-        cv_tensor_with_log_save = [self.final_states, cv_writer['summary_op'], self.saving_strategy.indicator_tensor]
+        cv_tensor_with_log_save = [self.final_states, cv_writer['summary_op'], self.saving_strategy.indicator_tensor,
+                                   self.prediction]
 
         # training steps
         for i in range(training_steps):
@@ -856,25 +863,25 @@ class RnnModel(Model):
                                               self.states.name: states
                                           })
                     else:
-                        states, cv_summary, saving_indicator_result = sess.run(cv_tensor_with_log_save,
-                                                                               feed_dict={
-                                                                                   self.features.name: self.get_data(
-                                                                                       cv_features),
-                                                                                   self.targets.name: self.get_data(
-                                                                                       cv_targets),
-                                                                                   self.states.name: states
-                                                                               })
+                        states, cv_summary, saving_indicator_result, prediction = sess.run(cv_tensor_with_log_save,
+                                                                                           feed_dict={
+                                                                                               self.features.name: self.get_data(
+                                                                                                   cv_features),
+                                                                                               self.targets.name: self.get_data(
+                                                                                                   cv_targets),
+                                                                                               self.states.name: states
+                                                                                           })
                         # TODO: add summary to cv summary
                         cv_writer['writer'].add_summary(summary=cv_summary, global_step=i)
 
                         # TODO: running saving strategy
-                        self.save(step=i, performance=saving_indicator_result)
+                        self.save(step=i, performance=saving_indicator_result, prediction=prediction)
 
         # if close session(default):
         if close_session:
             sess.close()
 
-    def save(self, step, performance):
+    def save(self, step, performance, prediction):
         if self.saving_strategy is None:
             raise Exception('Should define saving strategy before saving.')
         # compare it to the current best model
@@ -921,6 +928,7 @@ class RnnModel(Model):
 
                 ## for debugging
                 print(self.saving_strategy.top_model_list)
+                print(prediction)
 
                 break
 
